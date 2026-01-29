@@ -36,8 +36,7 @@ def _watcher_callback(paths: set[str]) -> None:
             except Exception:
                 pass
     if os.getenv("LINEAR_WATCH_PUSH") == "1":
-        push_all = os.getenv("LINEAR_WATCH_PUSH_ALL") == "1"
-        if artifacts_changed or push_all:
+        if artifacts_changed:
             try:
                 LINEAR_SYNC.push()
             except Exception:

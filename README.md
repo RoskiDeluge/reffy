@@ -38,7 +38,6 @@ Environment variables (for future wiring):
 - `LINEAR_WATCH_PUSH=1` (auto-push to Linear on changes)
 - `LINEAR_WATCH_DEBOUNCE=1.0` (seconds; default 1.0)
 - `LINEAR_WATCH_REINDEX=1` (auto-reindex when artifacts change)
-- `LINEAR_WATCH_PUSH_ALL=1` (push on any .references change, not just artifacts)
 
 Notes:
 - Push creates/updates issues and stores mappings in `.references/links/linear.json`.

@@ -6,7 +6,7 @@ These instructions are for AI assistants working in this project.
 Always open `@/.references/` when the request:
 - Mentions early-stage ideation, exploration, brainstorming, or raw notes
 - Needs context before drafting specs or proposals
-- Refers to reffy, references, or context layer
+- Refers to "reffy", "references", or "context layer"
 
 Use `.references/` to:
 - Store and read exploratory artifacts (canonical source of truth)
