@@ -153,6 +153,10 @@ class ReferencesStore:
             return "html", "text/html"
         if suffix == ".pdf":
             return "pdf", "application/pdf"
+        if suffix == ".doc":
+            return "doc", "application/msword"
+        if suffix == ".docx":
+            return "doc", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         if suffix == ".json":
             return "json", "application/json"
         if suffix == ".md":

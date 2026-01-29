@@ -58,7 +58,7 @@ POST /references/reindex
 ```
 
 This scans the artifacts directory and adds any missing files to the manifest
-with inferred kind/mime type (excalidraw, images, html, pdf, json).
+with inferred kind/mime type (excalidraw, images, html, pdf, doc/docx, json).
 
 ## Manifest (v1, draft)
 
