@@ -123,6 +123,30 @@ class LinearClient:
             raise RuntimeError("Linear issueCreate failed")
         return {"id": issue["id"], "identifier": issue["identifier"]}
 
+    def file_upload(self, *, content_type: str, filename: str, size: int) -> dict[str, Any]:
+        query = (
+            "mutation FileUpload($contentType: String!, $filename: String!, $size: Int!) { "
+            "fileUpload(contentType: $contentType, filename: $filename, size: $size) { "
+            "success uploadFile { uploadUrl assetUrl headers { key value } } } }"
+        )
+        data = self._post(query, {"contentType": content_type, "filename": filename, "size": size})
+        payload = data.get("fileUpload")
+        upload_file = payload.get("uploadFile") if payload else None
+        if not payload or not payload.get("success") or not upload_file:
+            raise RuntimeError("Linear fileUpload failed")
+        return upload_file
+
+    def create_attachment(self, *, issue_id: str, title: str, url: str) -> str:
+        query = (
+            "mutation AttachmentCreate($input: AttachmentCreateInput!) { "
+            "attachmentCreate(input: $input) { success attachment { id } } }"
+        )
+        data = self._post(query, {"input": {"issueId": issue_id, "title": title, "url": url}})
+        attachment = data.get("attachmentCreate", {}).get("attachment")
+        if not attachment or not attachment.get("id"):
+            raise RuntimeError("Linear attachmentCreate failed")
+        return attachment["id"]
+
     def update_issue(self, *, issue_id: str, title: str, description: str) -> dict[str, str]:
         query = (
             "mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) { "
@@ -256,6 +280,39 @@ class LinearSync:
                     created += 1
                     created_ids.append(created_issue["id"])
                     created_identifiers.append(created_issue["identifier"])
+                entry = mapping["artifacts"].get(artifact_id)
+                if entry is None:
+                    continue
+                path = self.store.get_artifact_path(artifact)
+                if not path.exists():
+                    continue
+                mime_type = artifact.get("mime_type") or "application/octet-stream"
+                should_attach = mime_type != "text/markdown"
+                if should_attach:
+                    stat = path.stat()
+                    last_mtime = entry.get("attachment_mtime")
+                    last_size = entry.get("attachment_size")
+                    if last_mtime != stat.st_mtime or last_size != stat.st_size:
+                        upload = self.client.file_upload(
+                            content_type=mime_type,
+                            filename=path.name,
+                            size=int(stat.st_size),
+                        )
+                        headers = {h["key"]: h["value"] for h in upload.get("headers", []) if h.get("key")}
+                        headers.setdefault("Content-Type", mime_type)
+                        with path.open("rb") as handle:
+                            response = httpx.put(upload["uploadUrl"], data=handle, headers=headers, timeout=60)
+                            response.raise_for_status()
+                        attachment_id = self.client.create_attachment(
+                            issue_id=entry["issue_id"],
+                            title=title,
+                            url=upload["assetUrl"],
+                        )
+                        entry["attachment_id"] = attachment_id
+                        entry["attachment_url"] = upload["assetUrl"]
+                        entry["attachment_mtime"] = stat.st_mtime
+                        entry["attachment_size"] = stat.st_size
+                entry["last_pushed_at"] = datetime.now(timezone.utc).isoformat()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{artifact_id}: {exc}")
                 skipped += 1

@@ -10,21 +10,31 @@ from watchdog.observers import Observer
 
 
 class _DebouncedHandler(FileSystemEventHandler):
-    def __init__(self, on_change: Callable[[], None], debounce_seconds: float) -> None:
+    def __init__(self, on_change: Callable[[set[str]], None], debounce_seconds: float) -> None:
         self._on_change = on_change
         self._debounce_seconds = debounce_seconds
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
+        self._paths: set[str] = set()
 
     def on_any_event(self, event) -> None:  # noqa: ANN001
         if event.is_directory:
             return
         with self._lock:
+            src_path = getattr(event, "src_path", None)
+            if src_path:
+                self._paths.add(str(src_path))
             if self._timer:
                 self._timer.cancel()
-            self._timer = threading.Timer(self._debounce_seconds, self._on_change)
+            self._timer = threading.Timer(self._debounce_seconds, self._fire)
             self._timer.daemon = True
             self._timer.start()
+
+    def _fire(self) -> None:
+        with self._lock:
+            paths = set(self._paths)
+            self._paths.clear()
+        self._on_change(paths)
 
     def cancel(self) -> None:
         with self._lock:
@@ -34,7 +44,7 @@ class _DebouncedHandler(FileSystemEventHandler):
 
 
 class ReferencesWatcher:
-    def __init__(self, refs_dir: Path, on_change: Callable[[], None]) -> None:
+    def __init__(self, refs_dir: Path, on_change: Callable[[set[str]], None]) -> None:
         self.refs_dir = refs_dir
         self.on_change = on_change
         self._observer = Observer()

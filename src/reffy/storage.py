@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import mimetypes
 from typing import Any
 from uuid import uuid4
 
@@ -140,6 +141,55 @@ class ReferencesStore:
         manifest["artifacts"].append(asdict(artifact))
         self._write_manifest(manifest)
         return asdict(artifact)
+
+    def _infer_kind(self, path: Path) -> tuple[str, str]:
+        suffix = path.suffix.lower()
+        if suffix == ".excalidraw":
+            return "diagram", "application/json"
+        if suffix in {".png", ".jpg", ".jpeg"}:
+            mime = "image/png" if suffix == ".png" else "image/jpeg"
+            return "image", mime
+        if suffix in {".html", ".htm"}:
+            return "html", "text/html"
+        if suffix == ".pdf":
+            return "pdf", "application/pdf"
+        if suffix == ".json":
+            return "json", "application/json"
+        if suffix == ".md":
+            return "note", "text/markdown"
+        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return "file", mime
+
+    def reindex_artifacts(self) -> dict[str, Any]:
+        manifest = self._read_manifest()
+        artifacts = manifest.get("artifacts", [])
+        known_filenames = {item.get("filename") for item in artifacts if item.get("filename")}
+        added = 0
+        for path in self.artifacts_dir.iterdir():
+            if path.is_dir():
+                continue
+            if path.name in known_filenames:
+                continue
+            kind, mime_type = self._infer_kind(path)
+            now = _utc_now()
+            artifact = Artifact(
+                id=str(uuid4()),
+                name=path.stem.replace("-", " ").strip() or "untitled",
+                filename=path.name,
+                kind=kind,
+                mime_type=mime_type,
+                size_bytes=path.stat().st_size,
+                tags=[],
+                created_at=now,
+                updated_at=now,
+            )
+            artifacts.append(asdict(artifact))
+            added += 1
+        if added:
+            manifest["artifacts"] = artifacts
+            manifest["updated_at"] = _utc_now()
+            self._write_manifest(manifest)
+        return {"added": added, "total": len(artifacts)}
 
     def update_artifact(
         self,

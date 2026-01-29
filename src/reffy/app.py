@@ -25,20 +25,33 @@ LINEAR_SYNC = LinearSync(REPO_ROOT, STORE, LINEAR)
 WATCHER: ReferencesWatcher | None = None
 
 
-def _watcher_callback() -> None:
-    if os.getenv("LINEAR_WATCH_PUSH") != "1":
-        return
-    try:
-        LINEAR_SYNC.push()
-    except Exception:
-        pass
+def _watcher_callback(paths: set[str]) -> None:
+    refs_path = STORE.refs_dir
+    artifacts_path = refs_path / "artifacts"
+    artifacts_changed = any(str(artifacts_path) in path for path in paths)
+    if os.getenv("LINEAR_WATCH_REINDEX") == "1":
+        if artifacts_changed:
+            try:
+                STORE.reindex_artifacts()
+            except Exception:
+                pass
+    if os.getenv("LINEAR_WATCH_PUSH") == "1":
+        push_all = os.getenv("LINEAR_WATCH_PUSH_ALL") == "1"
+        if artifacts_changed or push_all:
+            try:
+                LINEAR_SYNC.push()
+            except Exception:
+                pass
 
 
 @asynccontextmanager
 async def lifespan(_: Starlette):
     global WATCHER
     if ReferencesWatcher.enabled():
-        WATCHER = ReferencesWatcher(STORE.refs_dir, lambda: Thread(target=_watcher_callback, daemon=True).start())
+        WATCHER = ReferencesWatcher(
+            STORE.refs_dir,
+            lambda paths: Thread(target=_watcher_callback, args=(paths,), daemon=True).start(),
+        )
         WATCHER.start()
     yield
     if WATCHER:
@@ -125,6 +138,10 @@ async def delete_reference(request: Request) -> Response:
         return JSONResponse({"error": "not_found"}, status_code=404)
     return Response(status_code=204)
 
+async def reindex_references(_: Request) -> JSONResponse:
+    result = STORE.reindex_artifacts()
+    return JSONResponse(result)
+
 
 async def sync_push(_: Request) -> JSONResponse:
     response = LINEAR_SYNC.push()
@@ -148,6 +165,7 @@ routes = [
     Route("/references/{artifact_id}", update_reference, methods=["PATCH"]),
     Route("/references/{artifact_id}", delete_reference, methods=["DELETE"]),
     Route("/references/{artifact_id}/download", download_reference, methods=["GET"]),
+    Route("/references/reindex", reindex_references, methods=["POST"]),
     Route("/sync/push", sync_push, methods=["POST"]),
     Route("/sync/pull", sync_pull, methods=["POST"]),
 ]
