@@ -34,6 +34,7 @@ Environment variables (for future wiring):
 - `LINEAR_PULL_CREATE=1` (enable creating local artifacts for unmapped Linear issues)
 - `LINEAR_PULL_LABEL=reffy` (required when pull-create is enabled; only import issues with this label)
 - `LINEAR_PUSH_LABEL=reffy` (label new issues on push; set empty to disable)
+- `LINEAR_PULL_ON_START=1` (auto-pull when the server starts)
 - `LINEAR_WATCH=1` (enable local filesystem watcher)
 - `LINEAR_WATCH_PUSH=1` (auto-push to Linear on changes)
 - `LINEAR_WATCH_DEBOUNCE=1.0` (seconds; default 1.0)

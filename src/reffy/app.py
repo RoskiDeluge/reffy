@@ -46,6 +46,11 @@ def _watcher_callback(paths: set[str]) -> None:
 @asynccontextmanager
 async def lifespan(_: Starlette):
     global WATCHER
+    if os.getenv("LINEAR_PULL_ON_START") == "1":
+        try:
+            LINEAR_SYNC.pull()
+        except Exception:
+            pass
     if ReferencesWatcher.enabled():
         WATCHER = ReferencesWatcher(
             STORE.refs_dir,
