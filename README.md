@@ -1,6 +1,6 @@
 # reffy
 
-Local-first references store with Linear sync (MVP scaffold).
+Local-first references store with Linear sync. The one primitive is the `.references/` directory: a container for explorations that can act as upstream references for spec-driven development tools/frameworks like OpenSpec.
 
 ## Quickstart (uv)
 
@@ -25,7 +25,7 @@ Endpoints:
 - `POST /sync/push`
 - `POST /sync/pull`
 
-Environment variables (for future wiring):
+Environment variables to set Linear and watcher behavior configs:
 - `LINEAR_API_KEY`
 - `LINEAR_OAUTH_TOKEN`
 - `LINEAR_TEAM_ID`
@@ -80,5 +80,3 @@ The manifest lives at `.references/manifest.json` and is intentionally small for
   ]
 }
 ```
-
-We can expand this with Linear linkage, provenance, and richer artifact types once the basics feel right.
