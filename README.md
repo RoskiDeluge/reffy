@@ -15,10 +15,9 @@ Open:
 - http://127.0.0.1:8000/health
 - http://127.0.0.1:8000/references
 
-## Notes
-- The `.references/` folder is treated as the canonical store.
-- This scaffold keeps the schema minimal; we can tighten it next.
-- Linear sync endpoints are stubbed for now; they return a status payload.
+## CLI
+
+`reffy init` refreshes the managed Reffy block in `AGENTS.md` for the current repo (or `--repo PATH`).
 
 ## Linear sync (push + pull wired)
 
