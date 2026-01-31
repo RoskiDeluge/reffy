@@ -38,7 +38,6 @@ Environment variables (for future wiring):
 - `LINEAR_WATCH=1` (enable local filesystem watcher)
 - `LINEAR_WATCH_PUSH=1` (auto-push to Linear on changes)
 - `LINEAR_WATCH_DEBOUNCE=1.0` (seconds; default 1.0)
-- `LINEAR_WATCH_REINDEX=1` (auto-reindex when artifacts change)
 
 Notes:
 - Push creates/updates issues and stores mappings in `.references/links/linear.json`.
@@ -48,17 +47,6 @@ Notes:
 - When `LINEAR_PULL_CREATE=1` is set, pull will scan recent issues (first 50) and create local artifacts for unmapped issues that have the `LINEAR_PULL_LABEL`.
 - The app loads `.env` from the repo root on startup.
 - The watcher runs only when `LINEAR_WATCH=1` is set.
-
-## Reindex artifacts
-
-If you drop files directly into `.references/artifacts/`, call:
-
-```
-POST /references/reindex
-```
-
-This scans the artifacts directory and adds any missing files to the manifest
-with inferred kind/mime type (excalidraw, images, html, pdf, doc/docx, json).
 
 ## Manifest (v1, draft)
 
