@@ -1,6 +1,6 @@
 # reffy
 
-Local-first references store with Linear sync. The one primitive is the `.references/` directory: a container for explorations that can act as upstream references for spec-driven development tools/frameworks like OpenSpec.
+Local-first references store with optional Linear sync. The one primitive is the `.references/` directory: a container for explorations that can act as upstream references for spec-driven development tools/frameworks like OpenSpec.
 
 ## Quickstart (uv)
 
