@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "created_at": "2026-02-07T00:00:00.000Z",
+  "updated_at": "2026-02-07T22:37:26.410Z",
+  "artifacts": [
+    {
+      "id": "837ccceb-bc9a-4cd9-a9dd-75548a6df210",
+      "name": "testing_reffy_ts_1",
+      "filename": "testing_reffy_ts_1.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 15,
+      "tags": [],
+      "created_at": "2026-02-07T21:48:57.668Z",
+      "updated_at": "2026-02-07T22:37:23.192Z"
+    },
+    {
+      "id": "93f412f6-122e-47d9-bd6c-093fec7bc8ac",
+      "name": "testing_reffy_ts_1 (conflict)",
+      "filename": "testing_reffy_ts_1-conflict.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 16,
+      "tags": [
+        "conflict"
+      ],
+      "created_at": "2026-02-07T21:50:52.581Z",
+      "updated_at": "2026-02-07T21:50:52.581Z"
+    },
+    {
+      "id": "12f4a796-c37d-409f-86c5-76200e28ea4f",
+      "name": "testing reffy ts 2",
+      "filename": "testing-reffy-ts-2.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 18,
+      "tags": [
+        "linear",
+        "imported"
+      ],
+      "created_at": "2026-02-07T21:52:45.124Z",
+      "updated_at": "2026-02-07T22:37:23.789Z"
+    },
+    {
+      "id": "3c103305-dbc6-46f3-9432-8b5f83763536",
+      "name": "testing_reffy_ts_3",
+      "filename": "testing_reffy_ts_3.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 18,
+      "tags": [],
+      "created_at": "2026-02-07T21:54:24.656Z",
+      "updated_at": "2026-02-07T22:37:24.422Z"
+    },
+    {
+      "id": "b2cec586-461b-426d-bc26-effbb6c2ffcd",
+      "name": "testing_reffy_ts_3 (conflict)",
+      "filename": "testing_reffy_ts_3-conflict.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 19,
+      "tags": [
+        "conflict"
+      ],
+      "created_at": "2026-02-07T21:57:28.753Z",
+      "updated_at": "2026-02-07T21:57:28.753Z"
+    },
+    {
+      "id": "0e821bf4-9efb-43f8-96fc-25057d858c2b",
+      "name": "testing reffy ts 4",
+      "filename": "testing-reffy-ts-4.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 18,
+      "tags": [
+        "linear",
+        "imported"
+      ],
+      "created_at": "2026-02-07T21:57:29.578Z",
+      "updated_at": "2026-02-07T22:37:24.706Z"
+    },
+    {
+      "id": "4fdfe8fe-7ba1-49ce-bd3c-05e3b5326271",
+      "name": "testing_reffy_ts_5",
+      "filename": "testing_reffy_ts_5.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 42,
+      "tags": [],
+      "created_at": "2026-02-07T22:02:08.414Z",
+      "updated_at": "2026-02-07T22:37:24.977Z"
+    },
+    {
+      "id": "81593835-a6ba-4f45-8cdf-bdc9a829389f",
+      "name": "testing_reffy_6_ts",
+      "filename": "testing_reffy_6_ts.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 32,
+      "tags": [],
+      "created_at": "2026-02-07T22:07:41.264Z",
+      "updated_at": "2026-02-07T22:37:25.201Z"
+    },
+    {
+      "id": "abbdcdfb-791f-4dd8-afa3-11145ebf7fea",
+      "name": "testing_reffy_6_ts (conflict)",
+      "filename": "testing_reffy_6_ts-conflict.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 16,
+      "tags": [
+        "conflict"
+      ],
+      "created_at": "2026-02-07T22:09:00.750Z",
+      "updated_at": "2026-02-07T22:09:00.750Z"
+    },
+    {
+      "id": "d126dba6-5428-43ad-86a8-21230909b7f2",
+      "name": "testing_reffy_ts_7",
+      "filename": "testing_reffy_ts_7.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 32,
+      "tags": [],
+      "created_at": "2026-02-07T22:13:14.757Z",
+      "updated_at": "2026-02-07T22:37:25.545Z"
+    },
+    {
+      "id": "4fadc067-912c-408f-b8b5-1f3a74fddf3f",
+      "name": "testing_reffy_ts_8",
+      "filename": "testing_reffy_ts_8.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 32,
+      "tags": [],
+      "created_at": "2026-02-07T22:20:47.679Z",
+      "updated_at": "2026-02-07T22:37:25.780Z"
+    },
+    {
+      "id": "35a5311d-8dc9-4729-a7d7-85ed95fd2701",
+      "name": "testing_reffy_9_ts",
+      "filename": "testing_reffy_9_ts.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 32,
+      "tags": [],
+      "created_at": "2026-02-07T22:26:55.730Z",
+      "updated_at": "2026-02-07T22:37:26.057Z"
+    },
+    {
+      "id": "724c8825-0a17-45af-bad9-d9e6f3f6a714",
+      "name": "testing reffy 10",
+      "filename": "testing-reffy-10.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 33,
+      "tags": [
+        "linear",
+        "imported"
+      ],
+      "created_at": "2026-02-07T22:28:54.914Z",
+      "updated_at": "2026-02-07T22:37:26.410Z"
+    }
+  ],
+  "conflicts": [
+    {
+      "artifact_id": "837ccceb-bc9a-4cd9-a9dd-75548a6df210",
+      "source": "linear",
+      "note": "Local edits detected during pull; conflict copy created.",
+      "conflict_artifact_id": "93f412f6-122e-47d9-bd6c-093fec7bc8ac",
+      "created_at": "2026-02-07T21:50:52.583Z"
+    },
+    {
+      "artifact_id": "3c103305-dbc6-46f3-9432-8b5f83763536",
+      "source": "linear",
+      "note": "Local edits detected during pull; conflict copy created.",
+      "conflict_artifact_id": "b2cec586-461b-426d-bc26-effbb6c2ffcd",
+      "created_at": "2026-02-07T21:57:28.756Z"
+    },
+    {
+      "artifact_id": "81593835-a6ba-4f45-8cdf-bdc9a829389f",
+      "source": "linear",
+      "note": "Local edits detected during pull; conflict copy created.",
+      "conflict_artifact_id": "abbdcdfb-791f-4dd8-afa3-11145ebf7fea",
+      "created_at": "2026-02-07T22:09:00.751Z"
+    }
+  ]
+}
