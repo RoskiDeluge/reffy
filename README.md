@@ -8,6 +8,12 @@ Local-first references server for Node projects with optional Linear sync.
 npm install
 ```
 
+Create your local environment file:
+
+```bash
+cp .env.example .env
+```
+
 ## Develop
 
 ```bash
@@ -51,6 +57,8 @@ Or install globally from this folder and use `reffy init`.
 - If `<!-- OPENSPEC:START -->` exists, the Reffy block is placed above it.
 
 ## Environment Variables
+
+See `.env.example` for a complete example configuration.
 
 - `LINEAR_API_KEY` (optional; required if `LINEAR_OAUTH_TOKEN` is not set)
 - `LINEAR_OAUTH_TOKEN` (optional; required if `LINEAR_API_KEY` is not set)
