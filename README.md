@@ -1,6 +1,6 @@
 # reffy-ts
 
-Local-first references server for Node projects with optional Linear sync.
+CLI-first references workflow for Node projects.
 
 ## Install
 
@@ -12,104 +12,91 @@ npm install github:RoskiDeluge/reffy-ts
 
 The install runs this package's `prepare` step, which builds `dist/` automatically.
 
-Then inside that project:
+## Quickstart (CLI-only)
+
+Inside your project:
 
 ```bash
 npx reffy init
+npx reffy bootstrap
+npx reffy reindex
+npx reffy validate
 ```
 
-This creates/updates `AGENTS.md` and inserts the managed Reffy block in the correct location.
+Command summary:
 
-Create your local environment file:
+- `reffy init`: idempotently creates/updates `AGENTS.md` managed instructions block.
+- `reffy bootstrap`: idempotently runs `init`, ensures `.references/` structure exists, then reindexes artifacts.
+- `reffy reindex`: scans `.references/artifacts` and adds missing files to `.references/manifest.json`.
+- `reffy validate`: validates `.references/manifest.json` against manifest v1 contract.
+
+Output modes:
+
+- `--output text` (default)
+- `--output json`
+- `--json` (shortcut for `--output json`)
+
+Examples:
 
 ```bash
-cp .env.example .env
+npx reffy reindex --output json
+npx reffy validate --repo .
 ```
 
-You can run the server with:
+## Manifest v1 Contract
 
-```bash
-node node_modules/reffy-ts/dist/server.js
-```
+File: `.references/manifest.json`
 
-On first startup, `.references/` structure is bootstrapped automatically.
+Top-level required fields:
 
-## Develop
+- `version` (must be `1`)
+- `created_at` (ISO timestamp)
+- `updated_at` (ISO timestamp)
+- `artifacts` (array)
 
-For local development of this repo itself:
+Artifact required fields:
 
-```bash
-npm install
-```
+- `id` (string)
+- `name` (string)
+- `filename` (safe relative path under `.references/artifacts/`)
+- `kind` (one of: `note`, `json`, `diagram`, `image`, `html`, `pdf`, `doc`, `file`)
+- `mime_type` (string)
+- `size_bytes` (non-negative number)
+- `tags` (string array)
+- `created_at` (ISO timestamp)
+- `updated_at` (ISO timestamp)
 
-```bash
-npm run dev
-```
+Kind/extension rules:
 
-## Build + Run
+- `note`: `.md`
+- `json`: `.json`
+- `diagram`: `.excalidraw`
+- `image`: `.png`, `.jpg`, `.jpeg`
+- `html`: `.html`, `.htm`
+- `pdf`: `.pdf`
+- `doc`: `.doc`, `.docx`
+- `file`: any extension
 
-```bash
-npm run build
-npm start
-```
+## Migration Notes
 
-The server defaults to `http://127.0.0.1:8787`.
+- Use CLI commands instead of HTTP endpoints.
+- If you previously relied on `/references/reindex`, replace it with `reffy reindex`.
+- Connector-specific data files are no longer required by the core flow.
 
+## Collaboration Model
 
-## API Endpoints
-
-- `GET /health`
-- `GET /references`
-- `POST /references`
-- `GET /references/:artifact_id`
-- `PATCH /references/:artifact_id`
-- `DELETE /references/:artifact_id`
-- `GET /references/:artifact_id/download`
-- `POST /references/reindex`
-- `POST /sync/push`
-- `POST /sync/pull`
-
-## CLI
-
-```bash
-npm run build
-node dist/cli.js init --repo .
-```
-
-If installed in another project as a dependency:
-
-```bash
-npx reffy init
-```
-
-Or install globally and use `reffy init`.
-
-`reffy init` behavior:
-- Creates `AGENTS.md` if it does not exist.
-- Inserts/updates the managed Reffy block.
-- If `<!-- OPENSPEC:START -->` exists, the Reffy block is placed above it.
+Use git PR/merge as the source of truth for `.references/` collaboration.
 
 ## Environment Variables
 
-See `.env.example` for a complete example configuration.
+No environment variables are required for core CLI usage.
 
-- `LINEAR_API_KEY` (optional; required if `LINEAR_OAUTH_TOKEN` is not set)
-- `LINEAR_OAUTH_TOKEN` (optional; required if `LINEAR_API_KEY` is not set)
-- `LINEAR_TEAM_ID` (optional; auto-picks first team when omitted)
-- `LINEAR_PROJECT_ID` (optional)
-- `LINEAR_PULL_CREATE=1` (optional; enables importing unlinked labeled issues)
-- `LINEAR_PULL_LABEL=reffy-ts` (required only when `LINEAR_PULL_CREATE=1`)
-- `LINEAR_PUSH_LABEL=reffy-ts` (optional; defaults to `reffy-ts`, set empty to disable labeling)
-- `LINEAR_PULL_ON_START=1` (optional)
-- `LINEAR_WATCH=1` (optional)
-- `LINEAR_WATCH_PUSH=1` (optional)
-- `LINEAR_WATCH_REINDEX=1` (optional)
-- `LINEAR_WATCH_DEBOUNCE=1.0` (optional)
-- `LINEAR_PULL_CREATE_CONFLICTS=1` (optional; set `0` to disable conflict-copy creation on pull)
-- `HOST=127.0.0.1` (optional)
-- `PORT=8787` (optional)
+## Develop
 
-Auth notes:
-- Use either `LINEAR_API_KEY` or `LINEAR_OAUTH_TOKEN`.
-- If both are set, `LINEAR_OAUTH_TOKEN` is used first.
-- API key is simplest for single-user/local use; OAuth token is typically used for app-based/user-authorized flows.
+For local development of this repo:
+
+```bash
+npm install
+npm run build
+npm run check
+```

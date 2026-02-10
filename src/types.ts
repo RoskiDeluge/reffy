@@ -10,18 +10,9 @@ export interface Artifact {
   updated_at: string;
 }
 
-export interface ConflictEntry {
-  artifact_id: string;
-  source: string;
-  note: string;
-  conflict_artifact_id: string | null;
-  created_at: string;
-}
-
 export interface Manifest {
   version: number;
   created_at: string;
   updated_at: string;
   artifacts: Artifact[];
-  conflicts: ConflictEntry[];
 }

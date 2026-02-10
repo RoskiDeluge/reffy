@@ -1,7 +1,7 @@
 {
   "name": "reffy-ts",
   "version": "0.1.0",
-  "description": "Local-first references store with optional Linear sync (TypeScript)",
+  "description": "CLI-first references workflow for Node projects (TypeScript)",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -11,18 +11,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
-    "check": "tsc --noEmit",
-    "cleanup:linear-dupes": "tsx src/tools/cleanup-linear-duplicates.ts"
+    "dev": "tsx watch src/cli.ts",
+    "check": "tsc --noEmit"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "chokidar": "^4.0.3",
-    "dotenv": "^16.6.1",
-    "fastify": "^5.7.4",
     "mime-types": "^2.1.35",
     "uuid": "^11.1.0"
   },
