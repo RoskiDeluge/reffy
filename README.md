@@ -21,6 +21,7 @@ Inside your project:
 ```bash
 npx reffy init
 npx reffy bootstrap
+npx reffy doctor
 npx reffy reindex
 npx reffy validate
 npx reffy summarize
@@ -30,6 +31,7 @@ Command summary:
 
 - `reffy init`: idempotently creates/updates root `AGENTS.md` managed block and `.references/AGENTS.md`.
 - `reffy bootstrap`: idempotently runs `init`, ensures `.references/` structure exists, then reindexes artifacts.
+- `reffy doctor`: diagnoses required Reffy setup and optional tool availability.
 - `reffy reindex`: reconciles `.references/manifest.json` with `.references/artifacts` by adding missing files and removing stale entries.
 - `reffy validate`: validates `.references/manifest.json` against manifest v1 contract.
 - `reffy summarize`: generates a read-only handoff summary from indexed artifacts.
@@ -45,6 +47,8 @@ Examples:
 ```bash
 npx reffy reindex --output json
 npx reffy validate --repo .
+npx reffy doctor --output text
+npx reffy doctor --output json
 npx reffy summarize --output text
 npx reffy summarize --output json
 ```

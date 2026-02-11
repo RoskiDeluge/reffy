@@ -14,6 +14,8 @@ export async function createTempRepo(): Promise<{ repoRoot: string; refsDir: str
   const refsDir = path.join(repoRoot, ".references");
   const artifactsDir = path.join(refsDir, "artifacts");
   const manifestPath = path.join(refsDir, "manifest.json");
+  const rootAgentsPath = path.join(repoRoot, "AGENTS.md");
+  const refsAgentsPath = path.join(refsDir, "AGENTS.md");
 
   await mkdir(artifactsDir, { recursive: true });
   await writeFile(
@@ -30,6 +32,8 @@ export async function createTempRepo(): Promise<{ repoRoot: string; refsDir: str
     ),
     "utf8",
   );
+  await writeFile(rootAgentsPath, "# Test AGENTS\n", "utf8");
+  await writeFile(refsAgentsPath, "# Test Reffy AGENTS\n", "utf8");
 
   return { repoRoot, refsDir, artifactsDir, manifestPath };
 }

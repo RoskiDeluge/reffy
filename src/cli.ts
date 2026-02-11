@@ -2,6 +2,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { runDoctor } from "./doctor.js";
 import { ReferencesStore } from "./storage.js";
 import { summarizeArtifacts } from "./summarize.js";
 
@@ -205,6 +206,7 @@ function usage(): string {
     "Commands:",
     "  init       Ensure root AGENTS.md block and .references/AGENTS.md are up to date.",
     "  bootstrap  Run init, ensure .references structure exists, then reindex artifacts.",
+    "  doctor     Diagnose required Reffy setup and optional tool availability.",
     "  reindex    Scan .references/artifacts and add missing files to manifest.",
     "  validate   Validate .references/manifest.json against manifest v1 contract.",
     "  summarize  Generate a read-only summary of indexed Reffy artifacts.",
@@ -282,6 +284,34 @@ async function main(): Promise<number> {
       );
     }
     return 0;
+  }
+
+  if (command === "doctor") {
+    const repoRoot = parseRepoArg(rest);
+    const report = await runDoctor(repoRoot);
+    const status = report.summary.required_failed > 0 ? "error" : "ok";
+    const payload = { status, command: "doctor", ...report };
+    if (output === "json") {
+      printResult(output, payload);
+    } else {
+      const required = report.checks.filter((check) => check.level === "required");
+      const optional = report.checks.filter((check) => check.level === "optional");
+
+      console.log("Required Checks:");
+      for (const check of required) {
+        console.log(`- ${check.ok ? "PASS" : "FAIL"} ${check.id}: ${check.message}`);
+      }
+      console.log("");
+      console.log("Optional Checks:");
+      for (const check of optional) {
+        console.log(`- ${check.ok ? "PASS" : "WARN"} ${check.id}: ${check.message}`);
+      }
+      console.log("");
+      console.log(
+        `Summary: required_failed=${String(report.summary.required_failed)} optional_failed=${String(report.summary.optional_failed)}`,
+      );
+    }
+    return status === "ok" ? 0 : 1;
   }
 
   if (command === "validate") {

@@ -74,3 +74,43 @@ describe("cli summarize", () => {
     expect(parsed.ok).toBe(false);
   });
 });
+
+describe("cli doctor", () => {
+  it("prints required/optional sections in text mode", async () => {
+    const repo = await createTempRepo();
+    const result = await runCli(["doctor", "--repo", repo.repoRoot, "--output", "text"]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Required Checks:");
+    expect(result.stdout).toContain("Optional Checks:");
+    expect(result.stdout).toContain("Summary:");
+  });
+
+  it("returns structured json payload", async () => {
+    const repo = await createTempRepo();
+    const result = await runCli(["doctor", "--repo", repo.repoRoot, "--output", "json"]);
+
+    expect(result.code).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      status: string;
+      command: string;
+      checks: Array<{ id: string; level: string; ok: boolean; message: string }>;
+      summary: { required_failed: number };
+    };
+    expect(parsed.status).toBe("ok");
+    expect(parsed.command).toBe("doctor");
+    expect(parsed.summary.required_failed).toBe(0);
+    expect(parsed.checks.some((check) => check.id === "manifest_valid")).toBe(true);
+  });
+
+  it("returns non-zero when required checks fail", async () => {
+    const repo = await createTempRepo();
+    await writeFile(repo.manifestPath, "not-json", "utf8");
+
+    const result = await runCli(["doctor", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { status: string; summary: { required_failed: number } };
+    expect(parsed.status).toBe("error");
+    expect(parsed.summary.required_failed).toBeGreaterThan(0);
+  });
+});
