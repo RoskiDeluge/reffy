@@ -76,6 +76,7 @@ After deployment, create separate PR to:
 - Always check if capability already exists
 - Prefer modifying existing specs over creating duplicates
 - Use `openspec show [spec]` to review current state
+- If the change came from approved Reffy ideation, run `reffy summarize --output json` and use it to shortlist directly relevant artifacts for `Reffy References`
 - If request is ambiguous, ask 1–2 clarifying questions before scaffolding
 
 ### Search Guidance

@@ -44,7 +44,7 @@ These instructions are for AI assistants working in this project.
 - If needed, read existing context in \`.references/artifacts/\`.
 - Add/update exploratory artifacts and keep them concise.
 - Run \`reffy reindex\` and \`reffy validate\` after artifact changes.
-- When moving to planning, cite relevant Reffy artifacts in OpenSpec proposal docs.
+- After ideation approval, run \`reffy summarize --output json\` and pick only directly relevant artifacts for proposal citations.
 
 ## When To Use Reffy
 
@@ -77,6 +77,7 @@ You can skip Reffy when the request is:
 ## OpenSpec Citation Rules
 
 When an OpenSpec proposal is informed by Reffy artifacts:
+- After ideation approval, run \`reffy summarize --output json\` to shortlist candidate artifacts.
 - Include a short "Reffy References" subsection in \`proposal.md\` (or design notes if more appropriate).
 - Cite only artifact filenames that directly informed the proposal's problem, scope, decisions, or constraints.
 - Cite artifact filenames and intent, for example:
