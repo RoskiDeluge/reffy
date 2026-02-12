@@ -51,53 +51,29 @@ npx reffy summarize --output text
 npx reffy summarize --output json
 ```
 
-## Manifest v1 Contract
+## Using Reffy With SDD Frameworks (OpenSpec Example)
 
-File: `.references/manifest.json`
+`reffy-ts` is designed to complement spec-driven development workflows rather than replace them. A common pattern is:
 
-Top-level required fields:
+1. Use Reffy for ideation and context capture in `.references/`.
+2. Use an SDD framework (for example OpenSpec) for formal proposals/specs/tasks.
+3. Keep a clear handoff from exploratory artifacts to formal specs.
 
-- `version` (must be `1`)
-- `created_at` (ISO timestamp)
-- `updated_at` (ISO timestamp)
-- `artifacts` (array)
+Reference implementation in this repo:
 
-Artifact required fields:
+- `AGENTS.md`: contains both managed instruction blocks and encodes sequencing.
+- `AGENTS.md`: Reffy block routes ideation/exploration requests to `@/.references/AGENTS.md`.
+- `AGENTS.md`: OpenSpec block routes planning/proposal/spec requests to `@/openspec/AGENTS.md`.
+- `.references/AGENTS.md`: defines Reffy as the ideation/context layer and documents handoff expectations to OpenSpec.
+- `openspec/AGENTS.md`: defines OpenSpec as the formal planning/specification workflow after ideation is stable.
+- `src/cli.ts`: `reffy init`/`reffy bootstrap` enforce this integration by idempotently writing the managed Reffy guidance into `AGENTS.md` and `.references/AGENTS.md`.
 
-- `id` (string)
-- `name` (string)
-- `filename` (safe relative path under `.references/artifacts/`)
-- `kind` (one of: `note`, `json`, `diagram`, `image`, `html`, `pdf`, `doc`, `file`)
-- `mime_type` (string)
-- `size_bytes` (non-negative number)
-- `tags` (string array)
-- `created_at` (ISO timestamp)
-- `updated_at` (ISO timestamp)
+Practical connection pattern for any repo:
 
-Kind/extension rules:
-
-- `note`: `.md`
-- `json`: `.json`
-- `diagram`: `.excalidraw`
-- `image`: `.png`, `.jpg`, `.jpeg`
-- `html`: `.html`, `.htm`
-- `pdf`: `.pdf`
-- `doc`: `.doc`, `.docx`
-- `file`: any extension
-
-## Migration Notes
-
-- Use CLI commands instead of HTTP endpoints.
-- If you previously relied on `/references/reindex`, replace it with `reffy reindex`.
-- Connector-specific data files are no longer required by the core flow.
-
-## Collaboration Model
-
-Use git PR/merge as the source of truth for `.references/` collaboration.
-
-## Environment Variables
-
-No environment variables are required for core CLI usage.
+1. Run `npx reffy init` to install/refresh the Reffy instruction layer.
+2. Keep your SDD framework instructions (for example OpenSpec) in the same root `AGENTS.md`.
+3. During planning, cite only relevant Reffy artifacts from `.references/artifacts/` in your proposal/spec docs.
+4. Continue implementation in your SDD framework's normal review/approval process.
 
 ## Develop
 
@@ -110,4 +86,3 @@ npm run check
 npm test
 ```
 
-Testing includes a coverage gate with a minimum global threshold of 80%.
