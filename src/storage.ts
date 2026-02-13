@@ -171,16 +171,39 @@ export class ReferencesStore {
     const beforeCount = manifest.artifacts.length;
     manifest.artifacts = manifest.artifacts.filter((artifact) => filesOnDisk.has(artifact.filename));
     const removed = beforeCount - manifest.artifacts.length;
+    const artifactsByFilename = new Map(manifest.artifacts.map((artifact) => [artifact.filename, artifact]));
     const known = new Set(manifest.artifacts.map((a) => a.filename));
     let added = 0;
+    let updated = 0;
 
     for (const entry of entries) {
       if (!entry.isFile()) continue;
-      if (known.has(entry.name)) continue;
       const filePath = path.join(this.artifactsDir, entry.name);
       const stats = await fs.stat(filePath);
-      const now = utcNow();
       const inferred = inferArtifactType(filePath);
+
+      if (known.has(entry.name)) {
+        const artifact = artifactsByFilename.get(entry.name);
+        if (!artifact) continue;
+        const previousUpdated = Date.parse(artifact.updated_at);
+        const changedOnDisk =
+          artifact.size_bytes !== stats.size ||
+          artifact.kind !== inferred.kind ||
+          artifact.mime_type !== inferred.mime_type ||
+          Number.isNaN(previousUpdated) ||
+          previousUpdated < stats.mtimeMs;
+
+        if (changedOnDisk) {
+          artifact.size_bytes = stats.size;
+          artifact.kind = inferred.kind;
+          artifact.mime_type = inferred.mime_type;
+          artifact.updated_at = stats.mtime.toISOString();
+          updated += 1;
+        }
+        continue;
+      }
+
+      const now = utcNow();
       const artifact: Artifact = {
         id: randomUUID(),
         name: path.basename(entry.name, path.extname(entry.name)).replace(/-/g, " ").trim() || "untitled",
@@ -196,7 +219,7 @@ export class ReferencesStore {
       added += 1;
     }
 
-    if (added > 0 || removed > 0) {
+    if (added > 0 || removed > 0 || updated > 0) {
       manifest.updated_at = utcNow();
       await this.writeManifest(manifest);
     }

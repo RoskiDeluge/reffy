@@ -1,4 +1,4 @@
-import { rm, writeFile } from "node:fs/promises";
+import { rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -60,6 +60,28 @@ describe("ReferencesStore", () => {
     expect(result.removed).toBe(1);
     expect(result.total).toBe(0);
     expect(await store.getArtifact(created.id)).toBeNull();
+  });
+
+  it("updates artifact updated_at during reindex when file content changes on disk", async () => {
+    const repo = await createTempRepo();
+    const store = new ReferencesStore(repo.repoRoot);
+
+    await writeFile(path.join(store.artifactsDir, "tracked-note.md"), "first", "utf8");
+    await store.reindexArtifacts();
+    const before = (await store.listArtifacts()).find((artifact) => artifact.filename === "tracked-note.md");
+    expect(before).toBeDefined();
+
+    const filePath = path.join(store.artifactsDir, "tracked-note.md");
+    await writeFile(filePath, "second update with different size", "utf8");
+    const future = new Date(Date.now() + 5_000);
+    await utimes(filePath, future, future);
+
+    await store.reindexArtifacts();
+    const after = (await store.listArtifacts()).find((artifact) => artifact.filename === "tracked-note.md");
+    expect(after).toBeDefined();
+    expect(after?.created_at).toBe(before?.created_at);
+    expect(Date.parse(after?.updated_at ?? "")).toBeGreaterThan(Date.parse(before?.updated_at ?? ""));
+    expect(after?.updated_at).not.toBe(before?.updated_at);
   });
 
   it("validates manifest through store facade", async () => {
