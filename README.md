@@ -19,10 +19,6 @@ Inside your project:
 ```bash
 reffy init
 reffy bootstrap
-reffy doctor
-reffy reindex
-reffy validate
-reffy summarize
 ```
 
 Command summary:
