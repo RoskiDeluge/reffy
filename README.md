@@ -1,5 +1,7 @@
 # reffy
 
+[![npm version](https://img.shields.io/npm/v/reffy-cli.svg)](https://www.npmjs.com/package/reffy-cli)
+
 Reffy is intended as an ideation layer for spec-driven development (SDD) in straightforward, version controlled and agent-friendly markdown files.
 
 ## Install
@@ -9,8 +11,6 @@ Recommended usage in any repo:
 ```bash
 npm install -g reffy-cli
 ```
-
-The install runs this package's `prepare` step, which builds `dist/` automatically.
 
 ## Quickstart (CLI-only)
 
@@ -85,3 +85,5 @@ npm run build
 npm run check
 npm test
 ```
+
+`npm install` runs this package's `prepare` step, which builds `dist/` automatically.
