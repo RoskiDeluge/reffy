@@ -1,6 +1,6 @@
 {
   "name": "reffy-cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "CLI-first, framework-agnostic references workflow for any repo (TypeScript)",
   "license": "MIT",
   "type": "module",
