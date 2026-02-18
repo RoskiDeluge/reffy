@@ -1,6 +1,6 @@
 {
   "name": "reffy-cli",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "CLI-first, framework-agnostic references workflow for any repo (TypeScript)",
   "license": "MIT",
   "type": "module",
@@ -25,6 +25,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "beautiful-mermaid": "^0.1.3",
     "mime-types": "^2.1.35",
     "uuid": "^11.1.0"
   },

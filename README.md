@@ -29,6 +29,7 @@ Command summary:
 - `reffy reindex`: reconciles `.references/manifest.json` with `.references/artifacts` by adding missing files and removing stale entries.
 - `reffy validate`: validates `.references/manifest.json` against manifest v1 contract.
 - `reffy summarize`: generates a read-only handoff summary from indexed artifacts.
+- `reffy diagram render`: renders Mermaid diagrams as SVG or ASCII, including spec-aware generation from OpenSpec `spec.md`.
 
 Output modes:
 
@@ -45,6 +46,9 @@ reffy doctor --output text
 reffy doctor --output json
 reffy summarize --output text
 reffy summarize --output json
+reffy diagram render --stdin --format svg < diagram.mmd
+reffy diagram render --input openspec/specs/auth/spec.md --format ascii
+reffy diagram render --input openspec/specs/auth/spec.md --format svg --output .references/artifacts/auth-spec.svg
 ```
 
 ## Using Reffy With SDD Frameworks (OpenSpec Example)

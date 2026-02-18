@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
 
@@ -20,6 +20,33 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
     const e = error as { stdout?: string; stderr?: string; code?: number };
     return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", code: e.code ?? 1 };
   }
+}
+
+async function runCliWithStdin(args: string[], input: string): Promise<{ stdout: string; stderr: string; code: number }> {
+  return await new Promise((resolve) => {
+    const child = spawn("node", ["dist/cli.js", ...args], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("close", (code) => {
+      resolve({ stdout, stderr, code: code ?? 1 });
+    });
+
+    child.stdin.write(input);
+    child.stdin.end();
+  });
 }
 
 describe("cli summarize", () => {
@@ -112,5 +139,85 @@ describe("cli doctor", () => {
     const parsed = JSON.parse(result.stdout) as { status: string; summary: { required_failed: number } };
     expect(parsed.status).toBe("error");
     expect(parsed.summary.required_failed).toBeGreaterThan(0);
+  });
+});
+
+describe("cli diagram render", () => {
+  it("renders svg from stdin", async () => {
+    const result = await runCliWithStdin(
+      ["diagram", "render", "--format", "svg", "--stdin"],
+      "graph TD\n  A[Start] --> B[End]\n",
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("<svg");
+  });
+
+  it("renders ascii from stdin", async () => {
+    const result = await runCliWithStdin(
+      ["diagram", "render", "--format", "ascii", "--stdin"],
+      "graph LR\n  A --> B\n",
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("A");
+    expect(result.stdout).toContain("B");
+  });
+
+  it("derives diagram relationships from generated spec.md input", async () => {
+    const repo = await createTempRepo();
+    const specDir = path.join(repo.repoRoot, "openspec", "specs", "demo");
+    const specPath = path.join(specDir, "spec.md");
+    await mkdir(specDir, { recursive: true });
+    await writeFile(
+      specPath,
+      [
+        "# demo Specification",
+        "",
+        "## Requirements",
+        "### Requirement: User Login",
+        "The system SHALL support login.",
+        "",
+        "#### Scenario: Valid credentials",
+        "- **WHEN** the user submits correct credentials",
+        "- **THEN** authentication succeeds",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = await runCli(["diagram", "render", "--repo", repo.repoRoot, "--input", "openspec/specs/demo/spec.md", "--format", "ascii"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Requirement: User Login");
+    expect(result.stdout).toContain("Scenario: Valid credentials");
+  });
+
+  it("writes output to file when --output is provided", async () => {
+    const repo = await createTempRepo();
+    const result = await runCliWithStdin(
+      ["diagram", "render", "--repo", repo.repoRoot, "--stdin", "--format", "svg", "--output", "out/diagram.svg"],
+      "graph TD\n  A --> B\n",
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Wrote svg diagram to");
+    const written = await readFile(path.join(repo.repoRoot, "out", "diagram.svg"), "utf8");
+    expect(written).toContain("<svg");
+  });
+
+  it("fails for invalid mermaid input", async () => {
+    const result = await runCliWithStdin(["diagram", "render", "--format", "svg", "--stdin"], "not-a-mermaid-diagram");
+    expect(result.code).toBe(1);
+    expect(result.stderr.length).toBeGreaterThan(0);
+  });
+
+  it("fails for malformed spec.md input", async () => {
+    const repo = await createTempRepo();
+    const specDir = path.join(repo.repoRoot, "openspec", "specs", "broken");
+    await mkdir(specDir, { recursive: true });
+    await writeFile(path.join(specDir, "spec.md"), "# broken spec\n\nNo requirement headings here.\n", "utf8");
+
+    const result = await runCli(["diagram", "render", "--repo", repo.repoRoot, "--input", "openspec/specs/broken/spec.md", "--format", "ascii"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Unable to derive diagram from spec.md");
   });
 });

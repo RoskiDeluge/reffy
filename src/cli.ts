@@ -2,6 +2,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { renderDiagram } from "./diagram.js";
 import { runDoctor } from "./doctor.js";
 import { ReferencesStore } from "./storage.js";
 import { summarizeArtifacts } from "./summarize.js";
@@ -166,6 +167,26 @@ function parseRepoArg(argv: string[]): string {
 }
 
 type OutputMode = "text" | "json";
+type DiagramFormat = "svg" | "ascii";
+
+interface DiagramCliArgs {
+  repoRoot: string;
+  inputPath?: string;
+  stdin: boolean;
+  format: DiagramFormat;
+  outputPath?: string;
+  theme?: string;
+  bg?: string;
+  fg?: string;
+  line?: string;
+  accent?: string;
+  muted?: string;
+  surface?: string;
+  border?: string;
+  font?: string;
+}
+
+type DiagramStringOptionKey = "theme" | "bg" | "fg" | "line" | "accent" | "muted" | "surface" | "border" | "font";
 
 function parseOutputMode(argv: string[]): OutputMode {
   for (let i = 0; i < argv.length; i += 1) {
@@ -210,7 +231,126 @@ function usage(): string {
     "  reindex    Scan .references/artifacts and add missing files to manifest.",
     "  validate   Validate .references/manifest.json against manifest v1 contract.",
     "  summarize  Generate a read-only summary of indexed Reffy artifacts.",
+    "  diagram    Render Mermaid diagrams (supports SVG and ASCII).",
   ].join("\n");
+}
+
+function diagramUsage(): string {
+  return [
+    "Usage: reffy diagram render [--repo PATH] [--input PATH|--stdin] [--format svg|ascii] [--output PATH]",
+    "",
+    "Options:",
+    "  --input PATH      Read Mermaid (or OpenSpec spec.md) from file",
+    "  --stdin           Read Mermaid text from stdin",
+    "  --format VALUE    Output format: svg (default) or ascii",
+    "  --output PATH     Write rendered result to file instead of stdout",
+    "  --theme NAME      Apply built-in SVG theme (beautiful-mermaid)",
+    "  --bg HEX          SVG color override for background",
+    "  --fg HEX          SVG color override for foreground",
+    "  --line HEX        SVG color override for connector lines",
+    "  --accent HEX      SVG color override for accents/arrowheads",
+    "  --muted HEX       SVG color override for secondary text",
+    "  --surface HEX     SVG color override for node surfaces",
+    "  --border HEX      SVG color override for node borders",
+    "  --font NAME       SVG font family override",
+  ].join("\n");
+}
+
+function parseDiagramArgs(argv: string[]): DiagramCliArgs {
+  const repoRoot = parseRepoArg(argv);
+  const args: DiagramCliArgs = {
+    repoRoot,
+    stdin: false,
+    format: "svg",
+  };
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--repo") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--repo=")) continue;
+
+    if (arg === "--stdin") {
+      args.stdin = true;
+      continue;
+    }
+    if (arg === "--input") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--input requires a path");
+      args.inputPath = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--input=")) {
+      const value = arg.split("=", 2)[1];
+      if (!value) throw new Error("--input requires a path");
+      args.inputPath = value;
+      continue;
+    }
+    if (arg === "--output") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--output requires a path");
+      args.outputPath = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--output=")) {
+      const value = arg.split("=", 2)[1];
+      if (!value) throw new Error("--output requires a path");
+      args.outputPath = value;
+      continue;
+    }
+    if (arg === "--format") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--format requires a value: svg|ascii");
+      if (value !== "svg" && value !== "ascii") throw new Error(`Unsupported format: ${value}. Valid formats: svg, ascii`);
+      args.format = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--format=")) {
+      const value = arg.split("=", 2)[1];
+      if (value !== "svg" && value !== "ascii") throw new Error(`Unsupported format: ${value}. Valid formats: svg, ascii`);
+      args.format = value;
+      continue;
+    }
+
+    const keyMap: Record<string, DiagramStringOptionKey> = {
+      "--theme": "theme",
+      "--bg": "bg",
+      "--fg": "fg",
+      "--line": "line",
+      "--accent": "accent",
+      "--muted": "muted",
+      "--surface": "surface",
+      "--border": "border",
+      "--font": "font",
+    };
+
+    const directKey = keyMap[arg];
+    if (directKey) {
+      const value = argv[i + 1];
+      if (!value) throw new Error(`${arg} requires a value`);
+      args[directKey] = value;
+      i += 1;
+      continue;
+    }
+
+    const inline = Object.entries(keyMap).find(([flag]) => arg.startsWith(`${flag}=`));
+    if (inline) {
+      const [flag, key] = inline;
+      const value = arg.slice(flag.length + 1);
+      if (!value) throw new Error(`${flag} requires a value`);
+      args[key] = value;
+      continue;
+    }
+
+    throw new Error(`Unknown diagram option: ${arg}`);
+  }
+
+  return args;
 }
 
 function printSection(title: string, values: string[]): void {
@@ -226,13 +366,56 @@ function printSection(title: string, values: string[]): void {
 
 async function main(): Promise<number> {
   const [, , command, ...rest] = process.argv;
-  const output = parseOutputMode(rest);
-  printBanner(output);
 
   if (!command) {
     console.error(usage());
     return 1;
   }
+
+  if (command === "diagram") {
+    const [subcommand, ...diagramArgs] = rest;
+    if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+      console.error(diagramUsage());
+      return 1;
+    }
+    if (subcommand !== "render") {
+      console.error(`Unknown diagram subcommand: ${subcommand}`);
+      console.error(diagramUsage());
+      return 1;
+    }
+
+    const parsed = parseDiagramArgs(diagramArgs);
+    const rendered = await renderDiagram({
+      repoRoot: parsed.repoRoot,
+      inputPath: parsed.inputPath,
+      stdin: parsed.stdin,
+      format: parsed.format,
+      outputPath: parsed.outputPath,
+      theme: parsed.theme,
+      bg: parsed.bg,
+      fg: parsed.fg,
+      line: parsed.line,
+      accent: parsed.accent,
+      muted: parsed.muted,
+      surface: parsed.surface,
+      border: parsed.border,
+      font: parsed.font,
+    });
+
+    if (parsed.outputPath) {
+      console.log(`Wrote ${parsed.format} diagram to ${path.isAbsolute(parsed.outputPath) ? parsed.outputPath : path.join(parsed.repoRoot, parsed.outputPath)}`);
+      return 0;
+    }
+
+    process.stdout.write(rendered.content);
+    if (!rendered.content.endsWith("\n")) {
+      process.stdout.write("\n");
+    }
+    return 0;
+  }
+
+  const output = parseOutputMode(rest);
+  printBanner(output);
 
   if (command === "init") {
     const repoRoot = parseRepoArg(rest);
