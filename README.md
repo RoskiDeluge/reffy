@@ -9,7 +9,7 @@ Reffy is intended as an ideation layer for spec-driven development (SDD) in stra
 ## Install
 
 ```bash
-npm install -g reffy-cli
+npm install -g reffy-cli@latest
 ```
 
 ## Quickstart (CLI-only)
