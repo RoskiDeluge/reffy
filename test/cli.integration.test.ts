@@ -62,6 +62,7 @@ describe("cli summarize", () => {
     expect(result.stdout).toContain("Themes:");
     expect(result.stdout).toContain("Open Questions:");
     expect(result.stdout).toContain("Suggested Reffy References:");
+    expect(result.stdout).not.toContain("__  __");
   });
 
   it("returns machine-readable json output", async () => {
@@ -99,6 +100,17 @@ describe("cli summarize", () => {
     expect(parsed.status).toBe("error");
     expect(parsed.command).toBe("summarize");
     expect(parsed.ok).toBe(false);
+  });
+});
+
+describe("cli init", () => {
+  it("prints ASCII banner in text output", async () => {
+    const repo = await createTempRepo();
+    const result = await runCli(["init", "--repo", repo.repoRoot, "--output", "text"]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("__  __");
+    expect(result.stdout).toContain("Updated");
   });
 });
 

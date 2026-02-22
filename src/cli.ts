@@ -415,9 +415,9 @@ async function main(): Promise<number> {
   }
 
   const output = parseOutputMode(rest);
-  printBanner(output);
 
   if (command === "init") {
+    printBanner(output);
     const repoRoot = parseRepoArg(rest);
     const agents = await initAgents(repoRoot);
     const payload = { status: "ok", command: "init", ...agents };
