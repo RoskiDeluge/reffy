@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
 
@@ -8,11 +8,12 @@ import { describe, expect, it } from "vitest";
 import { addArtifact, createTempRepo } from "./helpers.js";
 
 const execFileAsync = promisify(execFile);
+const CLI_PATH = path.join(process.cwd(), "dist/cli.js");
 
-async function runCli(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+async function runCli(args: string[], cwd = process.cwd()): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
-    const { stdout, stderr } = await execFileAsync("node", ["dist/cli.js", ...args], {
-      cwd: process.cwd(),
+    const { stdout, stderr } = await execFileAsync("node", [CLI_PATH, ...args], {
+      cwd,
       env: process.env,
     });
     return { stdout, stderr, code: 0 };
@@ -22,10 +23,14 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
   }
 }
 
-async function runCliWithStdin(args: string[], input: string): Promise<{ stdout: string; stderr: string; code: number }> {
+async function runCliWithStdin(
+  args: string[],
+  input: string,
+  cwd = process.cwd(),
+): Promise<{ stdout: string; stderr: string; code: number }> {
   return await new Promise((resolve) => {
-    const child = spawn("node", ["dist/cli.js", ...args], {
-      cwd: process.cwd(),
+    const child = spawn("node", [CLI_PATH, ...args], {
+      cwd,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -111,6 +116,46 @@ describe("cli init", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("__  __");
     expect(result.stdout).toContain("Updated");
+  });
+});
+
+describe("cli repo-root discovery", () => {
+  it("uses the repository root when commands run from .references/artifacts", async () => {
+    const repo = await createTempRepo();
+    const cwd = repo.artifactsDir;
+    const nestedRefsPath = path.join(repo.artifactsDir, ".references");
+
+    const reindex = await runCli(["reindex", "--output", "json"], cwd);
+    expect(reindex.code).toBe(0);
+
+    const validate = await runCli(["validate", "--output", "json"], cwd);
+    expect(validate.code).toBe(0);
+
+    const summarize = await runCli(["summarize", "--output", "json"], cwd);
+    expect(summarize.code).toBe(0);
+
+    const doctor = await runCli(["doctor", "--output", "json"], cwd);
+    expect(doctor.code).toBe(0);
+
+    const init = await runCli(["init", "--output", "json"], cwd);
+    expect(init.code).toBe(0);
+
+    const bootstrap = await runCli(["bootstrap", "--output", "json"], cwd);
+    expect(bootstrap.code).toBe(0);
+
+    const initPayload = JSON.parse(init.stdout) as { root_agents_path: string; reffy_agents_path: string };
+    expect(await realpath(initPayload.root_agents_path)).toBe(await realpath(path.join(repo.repoRoot, "AGENTS.md")));
+    expect(await realpath(initPayload.reffy_agents_path)).toBe(
+      await realpath(path.join(repo.repoRoot, ".references", "AGENTS.md")),
+    );
+
+    const bootstrapPayload = JSON.parse(bootstrap.stdout) as { refs_dir: string; manifest_path: string };
+    expect(await realpath(bootstrapPayload.refs_dir)).toBe(await realpath(path.join(repo.repoRoot, ".references")));
+    expect(await realpath(bootstrapPayload.manifest_path)).toBe(
+      await realpath(path.join(repo.repoRoot, ".references", "manifest.json")),
+    );
+
+    await expect(access(nestedRefsPath)).rejects.toThrow();
   });
 });
 

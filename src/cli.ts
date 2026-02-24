@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs, statSync } from "node:fs";
 import path from "node:path";
 
 import { renderDiagram } from "./diagram.js";
@@ -149,6 +149,42 @@ async function initAgents(repoRoot: string): Promise<{ root_agents_path: string;
   return { root_agents_path: agentsPath, reffy_agents_path: reffyAgentsPath };
 }
 
+function pathExists(targetPath: string): boolean {
+  return existsSync(targetPath);
+}
+
+function isDirectory(targetPath: string): boolean {
+  try {
+    return statSync(targetPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function discoverRepoRoot(startDir: string): string {
+  let current = path.resolve(startDir);
+
+  while (true) {
+    if (path.basename(current) === ".references" && isDirectory(path.join(current, "artifacts"))) {
+      return path.dirname(current);
+    }
+
+    if (isDirectory(path.join(current, ".references"))) {
+      return current;
+    }
+
+    if (pathExists(path.join(current, "AGENTS.md")) || pathExists(path.join(current, ".git"))) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return path.resolve(startDir);
+    }
+    current = parent;
+  }
+}
+
 function parseRepoArg(argv: string[]): string {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -163,7 +199,7 @@ function parseRepoArg(argv: string[]): string {
       return path.resolve(value);
     }
   }
-  return process.cwd();
+  return discoverRepoRoot(process.cwd());
 }
 
 type OutputMode = "text" | "json";
