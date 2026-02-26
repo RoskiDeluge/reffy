@@ -2,6 +2,15 @@
   "name": "reffy-cli",
   "version": "0.6.4",
   "description": "CLI-first, framework-agnostic references workflow for any repo (TypeScript)",
+  "keywords": [
+    "reffy",
+    "openspec",
+    "specs",
+    "cli",
+    "ai",
+    "development",
+    "sdd"
+  ],
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
