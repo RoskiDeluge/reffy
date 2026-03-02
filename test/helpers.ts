@@ -11,7 +11,7 @@ function nowIso(): string {
 
 export async function createTempRepo(): Promise<{ repoRoot: string; refsDir: string; artifactsDir: string; manifestPath: string }> {
   const repoRoot = await mkdtemp(path.join(os.tmpdir(), "reffy-test-"));
-  const refsDir = path.join(repoRoot, ".references");
+  const refsDir = path.join(repoRoot, ".reffy");
   const artifactsDir = path.join(refsDir, "artifacts");
   const manifestPath = path.join(refsDir, "manifest.json");
   const rootAgentsPath = path.join(repoRoot, "AGENTS.md");

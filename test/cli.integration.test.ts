@@ -120,10 +120,10 @@ describe("cli init", () => {
 });
 
 describe("cli repo-root discovery", () => {
-  it("uses the repository root when commands run from .references/artifacts", async () => {
+  it("uses the repository root when commands run from .reffy/artifacts", async () => {
     const repo = await createTempRepo();
     const cwd = repo.artifactsDir;
-    const nestedRefsPath = path.join(repo.artifactsDir, ".references");
+    const nestedRefsPath = path.join(repo.artifactsDir, ".reffy");
 
     const reindex = await runCli(["reindex", "--output", "json"], cwd);
     expect(reindex.code).toBe(0);
@@ -146,13 +146,13 @@ describe("cli repo-root discovery", () => {
     const initPayload = JSON.parse(init.stdout) as { root_agents_path: string; reffy_agents_path: string };
     expect(await realpath(initPayload.root_agents_path)).toBe(await realpath(path.join(repo.repoRoot, "AGENTS.md")));
     expect(await realpath(initPayload.reffy_agents_path)).toBe(
-      await realpath(path.join(repo.repoRoot, ".references", "AGENTS.md")),
+      await realpath(path.join(repo.repoRoot, ".reffy", "AGENTS.md")),
     );
 
     const bootstrapPayload = JSON.parse(bootstrap.stdout) as { refs_dir: string; manifest_path: string };
-    expect(await realpath(bootstrapPayload.refs_dir)).toBe(await realpath(path.join(repo.repoRoot, ".references")));
+    expect(await realpath(bootstrapPayload.refs_dir)).toBe(await realpath(path.join(repo.repoRoot, ".reffy")));
     expect(await realpath(bootstrapPayload.manifest_path)).toBe(
-      await realpath(path.join(repo.repoRoot, ".references", "manifest.json")),
+      await realpath(path.join(repo.repoRoot, ".reffy", "manifest.json")),
     );
 
     await expect(access(nestedRefsPath)).rejects.toThrow();

@@ -55,7 +55,7 @@ function summarizeChecks(checks: DoctorCheck[]): DoctorReport["summary"] {
 
 export async function runDoctor(repoRoot: string, options?: DoctorOptions): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
-  const refsDir = path.join(repoRoot, ".references");
+  const refsDir = path.join(repoRoot, ".reffy");
   const artifactsDir = path.join(refsDir, "artifacts");
   const manifestPath = path.join(refsDir, "manifest.json");
   const rootAgentsPath = path.join(repoRoot, "AGENTS.md");
@@ -66,7 +66,7 @@ export async function runDoctor(repoRoot: string, options?: DoctorOptions): Prom
     id: "refs_dir_exists",
     level: "required",
     ok: refsDirExists,
-    message: refsDirExists ? ".references directory found" : ".references directory is missing",
+    message: refsDirExists ? ".reffy directory found" : ".reffy directory is missing",
   });
 
   const artifactsDirExists = await pathExists(artifactsDir);
@@ -74,7 +74,7 @@ export async function runDoctor(repoRoot: string, options?: DoctorOptions): Prom
     id: "artifacts_dir_exists",
     level: "required",
     ok: artifactsDirExists,
-    message: artifactsDirExists ? ".references/artifacts directory found" : ".references/artifacts directory is missing",
+    message: artifactsDirExists ? ".reffy/artifacts directory found" : ".reffy/artifacts directory is missing",
   });
 
   const rootAgentsExists = await pathExists(rootAgentsPath);
@@ -90,7 +90,7 @@ export async function runDoctor(repoRoot: string, options?: DoctorOptions): Prom
     id: "refs_agents_exists",
     level: "required",
     ok: refsAgentsExists,
-    message: refsAgentsExists ? ".references/AGENTS.md found" : ".references/AGENTS.md is missing",
+    message: refsAgentsExists ? ".reffy/AGENTS.md found" : ".reffy/AGENTS.md is missing",
   });
 
   const manifestExists = await pathExists(manifestPath);
@@ -99,7 +99,7 @@ export async function runDoctor(repoRoot: string, options?: DoctorOptions): Prom
       id: "manifest_valid",
       level: "required",
       ok: false,
-      message: ".references/manifest.json is missing",
+      message: ".reffy/manifest.json is missing",
     });
   } else {
     const manifestResult = await validateManifest(manifestPath, artifactsDir);
@@ -108,7 +108,7 @@ export async function runDoctor(repoRoot: string, options?: DoctorOptions): Prom
       level: "required",
       ok: manifestResult.ok,
       message: manifestResult.ok
-        ? `.references/manifest.json is valid (artifacts=${String(manifestResult.artifact_count)})`
+        ? `.reffy/manifest.json is valid (artifacts=${String(manifestResult.artifact_count)})`
         : `manifest invalid: ${manifestResult.errors.join("; ")}`,
     });
   }

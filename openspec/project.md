@@ -2,7 +2,7 @@
 
 ## Purpose
 `reffy` is a CLI-first, framework-agnostic references workflow for any repo.
-The project provides a `reffy` command that initializes managed assistant instructions in `AGENTS.md`, manages a `.references/` workspace, reindexes artifacts into a manifest, and validates that manifest against a v1 contract.
+The project provides a `reffy` command that initializes managed assistant instructions in `AGENTS.md`, manages a `.reffy/` workspace, reindexes artifacts into a manifest, and validates that manifest against a v1 contract.
 Primary goals are idempotent setup, predictable local file-based behavior, and straightforward integration into existing repositories.
 
 ## Tech Stack
@@ -35,8 +35,8 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 - Manifest schema/constants/validation helpers are centralized in `src/manifest.ts`
 - Shared type contracts are defined in `src/types.ts`
 - File-system persistence model:
-  - `.references/artifacts/` stores artifact files
-  - `.references/manifest.json` stores metadata/index
+  - `.reffy/artifacts/` stores artifact files
+  - `.reffy/manifest.json` stores metadata/index
 - Commands should be idempotent where possible (`init`, `bootstrap`, `reindex`)
 
 ### Testing Strategy
@@ -50,7 +50,7 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 ### Git Workflow
 - Collaboration is PR/merge based.
 - Keep changes focused and small, especially for schema/manifest behavior.
-- Preserve backward compatibility for `.references/manifest.json` v1 unless explicitly introducing a versioned breaking change.
+- Preserve backward compatibility for `.reffy/manifest.json` v1 unless explicitly introducing a versioned breaking change.
 - Update `README.md` when CLI behavior, commands, or contract details change.
 
 ## Domain Context
@@ -68,7 +68,7 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
   - Current supported contract version is `1`.
   - Validation enforces shape, safe relative paths, duplicate checks, and kind/extension rules.
 - Core workflow should not require environment variables or external services.
-- Commands are expected to run safely in existing repos without destructive side effects outside `.references/` and managed `AGENTS.md` block updates.
+- Commands are expected to run safely in existing repos without destructive side effects outside `.reffy/` and managed `AGENTS.md` block updates.
 
 ## External Dependencies
 - No required external APIs/services for core functionality.

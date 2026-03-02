@@ -22,7 +22,7 @@ export class ReferencesStore {
 
   constructor(repoRoot: string) {
     this.repoRoot = repoRoot;
-    this.refsDir = path.join(repoRoot, ".references");
+    this.refsDir = path.join(repoRoot, ".reffy");
     this.artifactsDir = path.join(this.refsDir, "artifacts");
     this.manifestPath = path.join(this.refsDir, "manifest.json");
     this.ensureStructure();

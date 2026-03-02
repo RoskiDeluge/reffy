@@ -23,11 +23,11 @@ reffy bootstrap
 
 Command summary:
 
-- `reffy init`: idempotently creates/updates root `AGENTS.md` managed block and `.references/AGENTS.md`.
-- `reffy bootstrap`: idempotently runs `init`, ensures `.references/` structure exists, then reindexes artifacts.
+- `reffy init`: idempotently creates/updates root `AGENTS.md` managed block and `.reffy/AGENTS.md`.
+- `reffy bootstrap`: idempotently runs `init`, ensures `.reffy/` structure exists, then reindexes artifacts.
 - `reffy doctor`: diagnoses required Reffy setup and optional tool availability.
-- `reffy reindex`: reconciles `.references/manifest.json` with `.references/artifacts` by adding missing files and removing stale entries.
-- `reffy validate`: validates `.references/manifest.json` against manifest v1 contract.
+- `reffy reindex`: reconciles `.reffy/manifest.json` with `.reffy/artifacts` by adding missing files and removing stale entries.
+- `reffy validate`: validates `.reffy/manifest.json` against manifest v1 contract.
 - `reffy summarize`: generates a read-only handoff summary from indexed artifacts.
 - `reffy diagram render`: renders Mermaid diagrams as SVG or ASCII, including spec-aware generation from OpenSpec `spec.md`.
 
@@ -48,31 +48,31 @@ reffy summarize --output text
 reffy summarize --output json
 reffy diagram render --stdin --format svg < diagram.mmd
 reffy diagram render --input openspec/specs/auth/spec.md --format ascii
-reffy diagram render --input openspec/specs/auth/spec.md --format svg --output .references/artifacts/auth-spec.svg
+reffy diagram render --input openspec/specs/auth/spec.md --format svg --output .reffy/artifacts/auth-spec.svg
 ```
 
 ## Using Reffy With SDD Frameworks (OpenSpec Example)
 
 `reffy` is designed to complement spec-driven development workflows rather than replace them. A common pattern is:
 
-1. Use Reffy for ideation and context capture in `.references/`.
+1. Use Reffy for ideation and context capture in `.reffy/`.
 2. Use an SDD framework (for example [OpenSpec](https://github.com/Fission-AI/OpenSpec)) for formal proposals/specs/tasks.
 3. Keep a clear handoff from exploratory artifacts to formal specs.
 
 Reference implementation in this repo:
 
 - `AGENTS.md`: contains both managed instruction blocks and encodes sequencing.
-- `AGENTS.md`: Reffy block routes ideation/exploration requests to `@/.references/AGENTS.md`.
+- `AGENTS.md`: Reffy block routes ideation/exploration requests to `@/.reffy/AGENTS.md`.
 - `AGENTS.md`: OpenSpec block routes planning/proposal/spec requests to `@/openspec/AGENTS.md`.
-- `.references/AGENTS.md`: defines Reffy as the ideation/context layer and documents handoff expectations to OpenSpec.
+- `.reffy/AGENTS.md`: defines Reffy as the ideation/context layer and documents handoff expectations to OpenSpec.
 - `openspec/AGENTS.md`: defines OpenSpec as the formal planning/specification workflow after ideation is stable.
-- `src/cli.ts`: `reffy init`/`reffy bootstrap` enforce this integration by idempotently writing the managed Reffy guidance into `AGENTS.md` and `.references/AGENTS.md`.
+- `src/cli.ts`: `reffy init`/`reffy bootstrap` enforce this integration by idempotently writing the managed Reffy guidance into `AGENTS.md` and `.reffy/AGENTS.md`.
 
 Practical connection pattern for any repo:
 
 1. Run `reffy init` to install/refresh the Reffy instruction layer.
 2. Keep your SDD framework instructions (for example OpenSpec) in the same root `AGENTS.md`.
-3. During planning, cite only relevant Reffy artifacts from `.references/artifacts/` in your proposal/spec docs.
+3. During planning, cite only relevant Reffy artifacts from `.reffy/artifacts/` in your proposal/spec docs.
 4. Continue implementation in your SDD framework's normal review/approval process.
 
 ## Develop

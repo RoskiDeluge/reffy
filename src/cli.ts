@@ -21,21 +21,21 @@ const REFFY_BLOCK = `<!-- REFFY:START -->
 
 These instructions are for AI assistants working in this project.
 
-Always open \`@/.references/AGENTS.md\` when the request:
+Always open \`@/.reffy/AGENTS.md\` when the request:
 - Mentions early-stage ideation, exploration, brainstorming, or raw notes
 - Needs context before drafting specs or proposals
 - Refers to "reffy", "references", "explore", or "context layer"
 
-Use \`@/.references/AGENTS.md\` to learn:
+Use \`@/.reffy/AGENTS.md\` to learn:
 - Reffy workflow and artifact conventions
 - How Reffy and OpenSpec should be sequenced
-- How to store and consume ideation context in \`.references/\`
+- How to store and consume ideation context in \`.reffy/\`
 
 Keep this managed block so \`reffy init\` can refresh the instructions.
 
 <!-- REFFY:END -->`;
 
-const REFFY_AGENTS_RELATIVE = path.join(".references", "AGENTS.md");
+const REFFY_AGENTS_RELATIVE = path.join(".reffy", "AGENTS.md");
 const REFFY_AGENTS_CONTENT = `# Reffy Instructions
 
 These instructions are for AI assistants working in this project.
@@ -43,7 +43,7 @@ These instructions are for AI assistants working in this project.
 ## TL;DR Checklist
 
 - Decide whether Reffy ideation is needed for this request.
-- If needed, read existing context in \`.references/artifacts/\`.
+- If needed, read existing context in \`.reffy/artifacts/\`.
 - Add/update exploratory artifacts and keep them concise.
 - Run \`reffy reindex\` and \`reffy validate\` after artifact changes.
 - After ideation approval, run \`reffy summarize --output json\` and pick only directly relevant artifacts for proposal citations.
@@ -64,9 +64,9 @@ You can skip Reffy when the request is:
 
 ## Reffy Workflow
 
-1. Read existing artifacts in \`.references/artifacts/\`.
+1. Read existing artifacts in \`.reffy/artifacts/\`.
 2. Add or update artifacts to capture exploratory context.
-3. Run \`reffy reindex\` to index newly added files into \`.references/manifest.json\`.
+3. Run \`reffy reindex\` to index newly added files into \`.reffy/manifest.json\`.
 4. Run \`reffy validate\` to verify manifest contract compliance.
 
 ## Relationship To OpenSpec
@@ -106,7 +106,7 @@ No Reffy references used.
 
 ## Artifact Conventions
 
-- Treat \`.references/\` as a repository-local guidance and ideation context layer.
+- Treat \`.reffy/\` as a repository-local guidance and ideation context layer.
 - Keep artifact names clear and stable.
 - Prefer markdown notes for exploratory content.
 - Keep manifests machine-readable and schema-compliant (version 1).
@@ -165,11 +165,11 @@ function discoverRepoRoot(startDir: string): string {
   let current = path.resolve(startDir);
 
   while (true) {
-    if (path.basename(current) === ".references" && isDirectory(path.join(current, "artifacts"))) {
+    if (path.basename(current) === ".reffy" && isDirectory(path.join(current, "artifacts"))) {
       return path.dirname(current);
     }
 
-    if (isDirectory(path.join(current, ".references"))) {
+    if (isDirectory(path.join(current, ".reffy"))) {
       return current;
     }
 
@@ -261,11 +261,11 @@ function usage(): string {
     "Usage: reffy <command> [--repo PATH] [--output text|json]",
     "",
     "Commands:",
-    "  init       Ensure root AGENTS.md block and .references/AGENTS.md are up to date.",
-    "  bootstrap  Run init, ensure .references structure exists, then reindex artifacts.",
+    "  init       Ensure root AGENTS.md block and .reffy/AGENTS.md are up to date.",
+    "  bootstrap  Run init, ensure .reffy structure exists, then reindex artifacts.",
     "  doctor     Diagnose required Reffy setup and optional tool availability.",
-    "  reindex    Scan .references/artifacts and add missing files to manifest.",
-    "  validate   Validate .references/manifest.json against manifest v1 contract.",
+    "  reindex    Scan .reffy/artifacts and add missing files to manifest.",
+    "  validate   Validate .reffy/manifest.json against manifest v1 contract.",
     "  summarize  Generate a read-only summary of indexed Reffy artifacts.",
     "  diagram    Render Mermaid diagrams (supports SVG and ASCII).",
   ].join("\n");
