@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { existsSync, promises as fs, statSync } from "node:fs";
 import path from "node:path";
 
@@ -6,6 +7,9 @@ import { renderDiagram } from "./diagram.js";
 import { runDoctor } from "./doctor.js";
 import { ReferencesStore } from "./storage.js";
 import { summarizeArtifacts } from "./summarize.js";
+
+const require = createRequire(import.meta.url);
+const { version: packageVersion } = require("../package.json") as { version: string };
 
 const REFFY_ASCII = [
   "            __  __      ",
@@ -260,6 +264,9 @@ function usage(): string {
   return [
     "Usage: reffy <command> [--repo PATH] [--output text|json]",
     "",
+    "Flags:",
+    "  --version  Print the installed reffy package version.",
+    "",
     "Commands:",
     "  init       Ensure root AGENTS.md block and .reffy/AGENTS.md are up to date.",
     "  bootstrap  Run init, ensure .reffy structure exists, then reindex artifacts.",
@@ -403,9 +410,14 @@ function printSection(title: string, values: string[]): void {
 async function main(): Promise<number> {
   const [, , command, ...rest] = process.argv;
 
-  if (!command) {
+  if (!command || command === "--help" || command === "-h") {
     console.error(usage());
-    return 1;
+    return command ? 0 : 1;
+  }
+
+  if (command === "--version") {
+    console.log(packageVersion);
+    return 0;
   }
 
   if (command === "diagram") {

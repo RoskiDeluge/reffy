@@ -119,6 +119,18 @@ describe("cli init", () => {
   });
 });
 
+describe("cli version", () => {
+  it("prints the installed package version", async () => {
+    const packageJson = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8")) as { version: string };
+
+    const result = await runCli(["--version"]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toBe(packageJson.version);
+  });
+});
+
 describe("cli repo-root discovery", () => {
   it("uses the repository root when commands run from .reffy/artifacts", async () => {
     const repo = await createTempRepo();
