@@ -2,7 +2,7 @@
 
 ## Purpose
 `reffy` is a CLI-first, framework-agnostic references workflow for any repo.
-The project provides a `reffy` command that initializes managed assistant instructions in `AGENTS.md`, manages a `.reffy/` workspace, reindexes artifacts into a manifest, and validates that manifest against a v1 contract.
+The project provides a `reffy` command that initializes managed assistant instructions in `AGENTS.md`, manages a canonical `.reffy/` workspace, reindexes artifacts into a manifest, validates that manifest against a v1 contract, and owns the planning/runtime workflow through the canonical `reffyspec/` layout.
 Primary goals are idempotent setup, predictable local file-based behavior, and straightforward integration into existing repositories.
 
 ## Tech Stack
@@ -30,22 +30,30 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 - Keep logic explicit and readable over clever abstractions; prefer small helper functions for validation and parsing
 
 ### Architecture Patterns
-- CLI entrypoint in `src/cli.ts` dispatches subcommands (`init`, `bootstrap`, `reindex`, `validate`)
+- CLI entrypoint in `src/cli.ts` dispatches subcommands (`init`, `bootstrap`, `migrate`, `reindex`, `validate`, `plan`)
 - Core domain logic lives in `ReferencesStore` (`src/storage.ts`) for file-system and manifest operations
 - Manifest schema/constants/validation helpers are centralized in `src/manifest.ts`
 - Shared type contracts are defined in `src/types.ts`
+- Planning scaffold generation lives in `src/plan.ts`
+- Native planning runtime helpers live in `src/plan-runtime.ts` and `src/plan-archive.ts`
+- Native spec inspection helpers live in `src/spec-runtime.ts`
 - File-system persistence model:
   - `.reffy/artifacts/` stores artifact files
   - `.reffy/manifest.json` stores metadata/index
+- Planning/spec model:
+  - `reffyspec/changes/` stores active changes and archived change history
+  - `reffyspec/specs/` stores current truth per capability
+  - Reffy is the runtime authority and ReffySpec is the canonical planning surface
+- `.vendor/ReffySpec/` is a vendored reference fork only; first-party runtime behavior belongs in the Reffy source tree
 - Commands should be idempotent where possible (`init`, `bootstrap`, `reindex`)
 
 ### Testing Strategy
-- No formal test suite is currently present in this repository.
-- Current quality gate is compile/type validation:
+- Automated tests run under Vitest.
+- Current quality gates:
   - `npm run build` (TypeScript compile)
   - `npm run check` (`tsc --noEmit`)
-- For behavior changes, validate via CLI smoke checks (`reffy init/bootstrap/reindex/validate`) against a sample repo layout.
-- If adding non-trivial logic (especially manifest validation/inference), prefer adding targeted automated tests as follow-up.
+  - `npm test`
+- For behavior changes, prefer adding or updating automated tests plus CLI smoke coverage for flows such as `reffy init/bootstrap/migrate/reindex/validate/plan/spec`.
 
 ### Git Workflow
 - Collaboration is PR/merge based.
@@ -56,6 +64,9 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 ## Domain Context
 - This project is a local references layer for AI-assisted development workflows.
 - `AGENTS.md` contains a managed Reffy block (`<!-- REFFY:START --> ... <!-- REFFY:END -->`) that must be inserted/updated idempotently.
+- Runtime boundary:
+  - Reffy is the primary runtime authority for planning behavior in this repo
+  - `reffyspec/` is the canonical layout for active changes, archived changes, and current specs
 - Manifest contract expectations:
   - Top-level fields: `version`, `created_at`, `updated_at`, `artifacts`
   - Each artifact requires metadata (`id`, `name`, `filename`, `kind`, `mime_type`, `size_bytes`, `tags`, timestamps)

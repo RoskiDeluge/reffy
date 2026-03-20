@@ -1,106 +1,150 @@
 {
   "version": 1,
-  "created_at": "2026-02-10T07:30:56.589Z",
-  "updated_at": "2026-03-03T20:40:43.339Z",
+  "created_at": "2026-03-19T23:54:59.641Z",
+  "updated_at": "2026-03-20T01:41:32.867Z",
   "artifacts": [
     {
-      "id": "d8b5bd8b-bbf7-4e9a-add9-21272a8f51c4",
-      "name": "openspec handoff summary",
-      "filename": "openspec-handoff-summary.md",
-      "kind": "note",
-      "mime_type": "text/markdown",
-      "size_bytes": 1906,
-      "tags": [],
-      "created_at": "2026-02-11T00:06:10.183Z",
-      "updated_at": "2026-02-11T00:06:10.183Z"
-    },
-    {
-      "id": "8c3cbaa2-a464-4126-ac87-40e66907ddde",
-      "name": "testing coverage plan",
-      "filename": "testing-coverage-plan.md",
-      "kind": "note",
-      "mime_type": "text/markdown",
-      "size_bytes": 1856,
-      "tags": [],
-      "created_at": "2026-02-11T00:21:39.277Z",
-      "updated_at": "2026-02-11T00:21:39.277Z"
-    },
-    {
-      "id": "74946747-9ee6-4dfc-9ef6-c71a260c0f2f",
-      "name": "doctor command plan",
-      "filename": "doctor-command-plan.md",
-      "kind": "note",
-      "mime_type": "text/markdown",
-      "size_bytes": 1609,
-      "tags": [],
-      "created_at": "2026-02-11T01:13:48.564Z",
-      "updated_at": "2026-02-11T01:13:48.564Z"
-    },
-    {
-      "id": "830f4fe6-21ac-4e33-a0bf-34df3220d708",
-      "name": "beautiful mermaid",
-      "filename": "beautiful-mermaid.md",
-      "kind": "note",
-      "mime_type": "text/markdown",
-      "size_bytes": 12087,
-      "tags": [],
-      "created_at": "2026-02-18T21:27:20.475Z",
-      "updated_at": "2026-02-18T21:27:20.475Z"
-    },
-    {
-      "id": "87f8b9cd-dc52-4371-b20c-44abb3f33a85",
+      "id": "610e1d57-6a94-49e8-95ea-90433480544a",
       "name": "add reffy doctor spec",
       "filename": "add-reffy-doctor-spec.svg",
       "kind": "file",
       "mime_type": "image/svg+xml",
       "size_bytes": 4408,
       "tags": [],
-      "created_at": "2026-02-18T21:51:46.488Z",
-      "updated_at": "2026-02-18T21:51:46.488Z"
+      "created_at": "2026-03-19T23:54:59.642Z",
+      "updated_at": "2026-03-19T23:54:59.642Z"
     },
     {
-      "id": "c892867e-e8e5-4bab-b13c-449668ce24cc",
-      "name": "bm diagram rendering feature",
-      "filename": "bm-diagram-rendering-feature.svg",
-      "kind": "file",
-      "mime_type": "image/svg+xml",
-      "size_bytes": 7592,
-      "tags": [],
-      "created_at": "2026-02-18T21:51:46.492Z",
-      "updated_at": "2026-02-18T21:51:46.492Z"
-    },
-    {
-      "id": "7839c670-cb8c-4bca-ba62-9850d0310659",
+      "id": "9ebf3d93-2af3-4086-9832-0aec4c6434e8",
       "name": "anti design docs",
       "filename": "anti-design-docs.md",
       "kind": "note",
       "mime_type": "text/markdown",
       "size_bytes": 10389,
       "tags": [],
-      "created_at": "2026-02-24T19:27:47.726Z",
-      "updated_at": "2026-02-24T19:27:47.726Z"
+      "created_at": "2026-03-19T23:54:59.642Z",
+      "updated_at": "2026-03-19T23:54:59.642Z"
     },
     {
-      "id": "c9ce8936-8e95-4f77-b80d-912ef813ae48",
+      "id": "e200b45b-dbcd-4a82-8cb4-b441b08137ce",
+      "name": "beautiful mermaid",
+      "filename": "beautiful-mermaid.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 12087,
+      "tags": [],
+      "created_at": "2026-03-19T23:54:59.642Z",
+      "updated_at": "2026-03-19T23:54:59.642Z"
+    },
+    {
+      "id": "777e87b3-c225-4508-bdd2-254913da4a65",
+      "name": "bm diagram rendering feature",
+      "filename": "bm-diagram-rendering-feature.svg",
+      "kind": "file",
+      "mime_type": "image/svg+xml",
+      "size_bytes": 7592,
+      "tags": [],
+      "created_at": "2026-03-19T23:54:59.643Z",
+      "updated_at": "2026-03-19T23:54:59.643Z"
+    },
+    {
+      "id": "680350cf-a75e-4ce7-a4bf-16d31b2c9007",
+      "name": "doctor command plan",
+      "filename": "doctor-command-plan.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 1609,
+      "tags": [],
+      "created_at": "2026-03-19T23:54:59.643Z",
+      "updated_at": "2026-03-19T23:54:59.643Z"
+    },
+    {
+      "id": "23acc84a-28dc-4748-bede-aca4e8164d83",
+      "name": "openspec handoff summary",
+      "filename": "openspec-handoff-summary.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 1906,
+      "tags": [],
+      "created_at": "2026-03-19T23:54:59.643Z",
+      "updated_at": "2026-03-19T23:54:59.643Z"
+    },
+    {
+      "id": "ae2a1ba0-ee91-408a-90b8-5eee19b89313",
+      "name": "os_custom_schemas",
+      "filename": "os_custom_schemas.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 8026,
+      "tags": [],
+      "created_at": "2026-03-19T23:54:59.643Z",
+      "updated_at": "2026-03-19T23:54:59.643Z"
+    },
+    {
+      "id": "33438dd0-814c-4eb6-b415-7b935882fddc",
+      "name": "refactor idea",
+      "filename": "refactor-idea.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 2051,
+      "tags": [],
+      "created_at": "2026-03-19T23:54:59.643Z",
+      "updated_at": "2026-03-20T00:12:51.993Z"
+    },
+    {
+      "id": "f5dcf3ac-5e97-4514-9da5-6e7064add322",
       "name": "telemetry",
       "filename": "telemetry.md",
       "kind": "note",
       "mime_type": "text/markdown",
       "size_bytes": 2785,
       "tags": [],
-      "created_at": "2026-02-26T23:31:36.441Z",
-      "updated_at": "2026-02-26T23:31:36.441Z"
+      "created_at": "2026-03-19T23:54:59.643Z",
+      "updated_at": "2026-03-19T23:54:59.643Z"
     },
     {
-      "id": "760853b8-8999-4c2d-ac4d-e3334900a94f",
-      "name": "customization",
-      "filename": "customization.md",
+      "id": "21b797af-d3da-47bb-b7a3-c8e3b448ef32",
+      "name": "testing coverage plan",
+      "filename": "testing-coverage-plan.md",
       "kind": "note",
       "mime_type": "text/markdown",
-      "size_bytes": 8026,
+      "size_bytes": 1856,
       "tags": [],
-      "created_at": "2026-03-03T20:40:43.338Z",
-      "updated_at": "2026-03-03T20:40:43.338Z"
+      "created_at": "2026-03-19T23:54:59.643Z",
+      "updated_at": "2026-03-19T23:54:59.643Z"
+    },
+    {
+      "id": "455ad106-1472-478c-b88f-d10e974fc49a",
+      "name": "reffyspec refactor plan",
+      "filename": "reffyspec-refactor-plan.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 6475,
+      "tags": [],
+      "created_at": "2026-03-20T00:14:46.417Z",
+      "updated_at": "2026-03-20T00:14:46.417Z"
+    },
+    {
+      "id": "e76d982f-b23b-4698-9cff-945d0e93e7a3",
+      "name": "decision note v1",
+      "filename": "decision-note-v1.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 992,
+      "tags": [],
+      "created_at": "2026-03-20T01:41:32.861Z",
+      "updated_at": "2026-03-20T01:41:32.861Z"
+    },
+    {
+      "id": "d0d27be7-56a8-4789-b1a0-462934c64d44",
+      "name": "reffyspec runtime replacement plan",
+      "filename": "reffyspec-runtime-replacement-plan.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 6354,
+      "tags": [],
+      "created_at": "2026-03-20T01:41:32.867Z",
+      "updated_at": "2026-03-20T01:41:32.867Z"
     }
   ]
 }

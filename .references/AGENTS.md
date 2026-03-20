@@ -8,7 +8,7 @@ These instructions are for AI assistants working in this project.
 - If needed, read existing context in `.references/artifacts/`.
 - Add/update exploratory artifacts and keep them concise.
 - Run `reffy reindex` and `reffy validate` after artifact changes.
-- After ideation approval, run `reffy summarize --output json` and pick only directly relevant artifacts for proposal citations.
+- Use `reffy summarize --output json` and `reffy plan create` when artifacts should drive formal planning outputs.
 
 ## When To Use Reffy
 
@@ -30,17 +30,17 @@ You can skip Reffy when the request is:
 2. Add or update artifacts to capture exploratory context.
 3. Run `reffy reindex` to index newly added files into `.references/manifest.json`.
 4. Run `reffy validate` to verify manifest contract compliance.
+5. Use `reffy plan create` when the artifact set is ready to drive a formal planning change.
 
-## Relationship To OpenSpec
+## Relationship To ReffySpec
 
-- Reffy is the ideation/context layer.
-- OpenSpec is the formal planning/spec layer.
-- After ideation stabilizes, hand off to OpenSpec by following `@/openspec/AGENTS.md`.
-- Do not duplicate full proposal/spec content in Reffy artifacts; summarize and link to OpenSpec outputs.
+- Reffy owns ideation artifacts, native planning/runtime behavior, and traceability.
+- ReffySpec files live under `reffyspec/` as the canonical planning/spec layout.
+- Do not duplicate full proposal/spec content in Reffy artifacts; generate and link planning outputs from them.
 
-## OpenSpec Citation Rules
+## ReffySpec Citation Rules
 
-When an OpenSpec proposal is informed by Reffy artifacts:
+When a ReffySpec proposal is informed by Reffy artifacts:
 - After ideation approval, run `reffy summarize --output json` to shortlist candidate artifacts.
 - Include a short "Reffy References" subsection in `proposal.md` (or design notes if more appropriate).
 - Cite only artifact filenames that directly informed the proposal's problem, scope, decisions, or constraints.
@@ -52,7 +52,7 @@ When an OpenSpec proposal is informed by Reffy artifacts:
 
 ### Reusable Proposal Snippet
 
-Use this in `openspec/changes/<change-id>/proposal.md`:
+Use this in `reffyspec/changes/<change-id>/proposal.md`:
 
 ```md
 ## Reffy References

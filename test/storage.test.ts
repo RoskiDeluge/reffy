@@ -90,4 +90,24 @@ describe("ReferencesStore", () => {
     const result = await store.validateManifest();
     expect(result.ok).toBe(true);
   });
+
+  it("records planning outputs against selected artifacts", async () => {
+    const repo = await createTempRepo();
+    const store = new ReferencesStore(repo.repoRoot);
+    const created = await store.createArtifact({
+      name: "Planning Input",
+      content: "context",
+    });
+
+    const result = await store.linkPlanningOutputs(
+      [created.filename],
+      ["reffyspec/changes/add-demo/proposal.md", "reffyspec/changes/add-demo/tasks.md"],
+      "add-demo",
+    );
+
+    expect(result.linked).toBe(1);
+    const updated = await store.getArtifact(created.id);
+    expect(updated?.related_changes).toContain("add-demo");
+    expect(updated?.derived_outputs).toContain("reffyspec/changes/add-demo/proposal.md");
+  });
 });

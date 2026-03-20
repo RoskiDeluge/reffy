@@ -83,6 +83,19 @@ function validateArtifactShape(value: unknown, index: number, errors: string[]):
   if (!Array.isArray(value.tags) || value.tags.some((tag) => typeof tag !== "string")) {
     errors.push(`artifacts[${index}].tags must be an array of strings`);
   }
+  if (value.status !== undefined && typeof value.status !== "string") {
+    errors.push(`artifacts[${index}].status must be a string when provided`);
+  }
+  if (value.related_changes !== undefined) {
+    if (!Array.isArray(value.related_changes) || value.related_changes.some((entry) => typeof entry !== "string")) {
+      errors.push(`artifacts[${index}].related_changes must be an array of strings when provided`);
+    }
+  }
+  if (value.derived_outputs !== undefined) {
+    if (!Array.isArray(value.derived_outputs) || value.derived_outputs.some((entry) => typeof entry !== "string")) {
+      errors.push(`artifacts[${index}].derived_outputs must be an array of strings when provided`);
+    }
+  }
 
   if (!isIsoDate(value.created_at)) {
     errors.push(`artifacts[${index}].created_at must be an ISO timestamp`);

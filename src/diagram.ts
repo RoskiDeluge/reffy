@@ -22,7 +22,7 @@ export interface DiagramRenderRequest {
   font?: string;
 }
 
-function isLikelyOpenSpecDocument(inputPath: string | undefined, content: string): boolean {
+function isLikelySpecDocument(inputPath: string | undefined, content: string): boolean {
   if (inputPath && path.basename(inputPath).toLowerCase() === "spec.md") return true;
   return /^### Requirement:\s+/m.test(content) && /^#### Scenario:\s+/m.test(content);
 }
@@ -102,7 +102,7 @@ async function loadSource(request: DiagramRenderRequest): Promise<{ sourceText: 
     throw new Error("Diagram input is empty.");
   }
 
-  if (isLikelyOpenSpecDocument(request.inputPath, raw)) {
+  if (isLikelySpecDocument(request.inputPath, raw)) {
     return { sourceText: convertSpecToMermaid(raw), sourceKind: "spec" };
   }
   return { sourceText: raw, sourceKind: "mermaid" };

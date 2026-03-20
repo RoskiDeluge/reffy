@@ -1,10 +1,10 @@
 {
   "name": "reffy-cli",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "description": "CLI-first, framework-agnostic references workflow for any repo (TypeScript)",
   "keywords": [
     "reffy",
-    "openspec",
+    "reffyspec",
     "specs",
     "cli",
     "ai",

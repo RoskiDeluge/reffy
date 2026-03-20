@@ -232,6 +232,70 @@ export class ReferencesStore {
     return validateManifest(this.manifestPath, this.artifactsDir);
   }
 
+  public async linkPlanningOutputs(
+    artifactFilenames: string[],
+    outputPaths: string[],
+    changeId: string,
+  ): Promise<{ linked: number }> {
+    const manifest = await this.readManifest();
+    const targets = new Set(artifactFilenames);
+    let linked = 0;
+
+    for (const artifact of manifest.artifacts) {
+      if (!targets.has(artifact.filename)) continue;
+
+      artifact.related_changes = Array.from(new Set([...(artifact.related_changes ?? []), changeId]));
+      artifact.derived_outputs = Array.from(new Set([...(artifact.derived_outputs ?? []), ...outputPaths]));
+      artifact.updated_at = utcNow();
+      linked += 1;
+    }
+
+    if (linked > 0) {
+      manifest.updated_at = utcNow();
+      await this.writeManifest(manifest);
+    }
+
+    return { linked };
+  }
+
+  public async rewriteDerivedOutputPaths(pathMap: Record<string, string>): Promise<{ updated: number }> {
+    const replacements = Object.entries(pathMap);
+    if (replacements.length === 0) {
+      return { updated: 0 };
+    }
+
+    const manifest = await this.readManifest();
+    let updated = 0;
+
+    for (const artifact of manifest.artifacts) {
+      const outputs = artifact.derived_outputs ?? [];
+      if (outputs.length === 0) continue;
+
+      let changed = false;
+      const nextOutputs = outputs.map((outputPath) => {
+        const replacement = pathMap[outputPath];
+        if (!replacement || replacement === outputPath) {
+          return outputPath;
+        }
+        changed = true;
+        return replacement;
+      });
+
+      if (!changed) continue;
+
+      artifact.derived_outputs = Array.from(new Set(nextOutputs));
+      artifact.updated_at = utcNow();
+      updated += 1;
+    }
+
+    if (updated > 0) {
+      manifest.updated_at = utcNow();
+      await this.writeManifest(manifest);
+    }
+
+    return { updated };
+  }
+
   public async updateArtifact(
     artifactId: string,
     input: {

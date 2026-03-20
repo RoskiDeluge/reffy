@@ -132,6 +132,39 @@ describe("manifest module", () => {
     expect(result.warnings[0]).toContain("size_bytes");
   });
 
+  it("accepts optional planning traceability fields", async () => {
+    const repo = await createTempRepo();
+    const artifact = await addArtifact(repo, {
+      filename: "trace.md",
+      content: "trace me",
+    });
+
+    await writeFile(
+      repo.manifestPath,
+      JSON.stringify(
+        {
+          version: 1,
+          created_at: artifact.created_at,
+          updated_at: artifact.updated_at,
+          artifacts: [
+            {
+              ...artifact,
+              status: "planned",
+              related_changes: ["add-traceability"],
+              derived_outputs: ["reffyspec/changes/add-traceability/proposal.md"],
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
+    expect(result.ok).toBe(true);
+  });
+
   it("checks isManifest type guard", () => {
     expect(isManifest({ version: 1, artifacts: [], created_at: "x", updated_at: "y" })).toBe(true);
     expect(isManifest({ version: 2, artifacts: [] })).toBe(false);

@@ -8,13 +8,13 @@ import { runDoctor } from "../src/doctor.js";
 import { createTempRepo } from "./helpers.js";
 
 describe("runDoctor", () => {
-  it("passes required checks and warns for missing optional tools", async () => {
+  it("passes required checks and reports canonical workspace state", async () => {
     const repo = await createTempRepo();
-    const report = await runDoctor(repo.repoRoot, { checkOpenSpec: () => false });
+    const report = await runDoctor(repo.repoRoot);
 
     expect(report.summary.required_failed).toBe(0);
-    expect(report.summary.optional_failed).toBe(1);
-    expect(report.checks.find((check) => check.id === "openspec_available")?.ok).toBe(false);
+    expect(report.summary.optional_failed).toBe(0);
+    expect(report.checks.find((check) => check.id === "workspace_canonical")?.ok).toBe(true);
   });
 
   it("fails required checks when expected files are missing", async () => {
@@ -22,7 +22,7 @@ describe("runDoctor", () => {
     await mkdir(path.join(repoRoot, ".reffy", "artifacts"), { recursive: true });
     await writeFile(path.join(repoRoot, ".reffy", "manifest.json"), "{}", "utf8");
 
-    const report = await runDoctor(repoRoot, { checkOpenSpec: () => true });
+    const report = await runDoctor(repoRoot);
     expect(report.summary.required_failed).toBeGreaterThan(0);
     expect(report.checks.find((check) => check.id === "root_agents_exists")?.ok).toBe(false);
     expect(report.checks.find((check) => check.id === "refs_agents_exists")?.ok).toBe(false);

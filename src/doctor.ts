@@ -1,9 +1,8 @@
-import { spawnSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { validateManifest } from "./manifest.js";
-import { resolveRefsDirName } from "./refs-paths.js";
+import { detectWorkspaceState, resolveRefsDirName } from "./refs-paths.js";
 
 type CheckLevel = "required" | "optional";
 
@@ -24,10 +23,6 @@ export interface DoctorReport {
   };
 }
 
-export interface DoctorOptions {
-  checkOpenSpec?: () => boolean;
-}
-
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
@@ -35,11 +30,6 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function defaultOpenSpecCheck(): boolean {
-  const result = spawnSync("openspec", ["--version"], { stdio: "ignore" });
-  return result.error === undefined;
 }
 
 function summarizeChecks(checks: DoctorCheck[]): DoctorReport["summary"] {
@@ -54,8 +44,9 @@ function summarizeChecks(checks: DoctorCheck[]): DoctorReport["summary"] {
   };
 }
 
-export async function runDoctor(repoRoot: string, options?: DoctorOptions): Promise<DoctorReport> {
+export async function runDoctor(repoRoot: string): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
+  const workspace = detectWorkspaceState(repoRoot);
   const refsDirName = resolveRefsDirName(repoRoot);
   const refsDir = path.join(repoRoot, refsDirName);
   const artifactsDir = path.join(refsDir, "artifacts");
@@ -117,13 +108,14 @@ export async function runDoctor(repoRoot: string, options?: DoctorOptions): Prom
     });
   }
 
-  const checkOpenSpec = options?.checkOpenSpec ?? defaultOpenSpecCheck;
-  const hasOpenSpec = checkOpenSpec();
   checks.push({
-    id: "openspec_available",
+    id: "workspace_canonical",
     level: "optional",
-    ok: hasOpenSpec,
-    message: hasOpenSpec ? "openspec command is available" : "openspec command not found on PATH",
+    ok: workspace.mode !== "legacy",
+    message:
+      workspace.mode === "legacy"
+        ? "legacy .references workspace detected; run `reffy migrate` to adopt .reffy/"
+        : ".reffy/ is the active workspace",
   });
 
   return { checks, summary: summarizeChecks(checks) };

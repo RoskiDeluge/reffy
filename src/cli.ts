@@ -5,9 +5,16 @@ import path from "node:path";
 
 import { renderDiagram } from "./diagram.js";
 import { runDoctor } from "./doctor.js";
-import { DEFAULT_REFS_DIRNAME, looksLikeRefsDir, resolveRefsDirName } from "./refs-paths.js";
+import { archivePlanningChange } from "./plan-archive.js";
+import { createPlanScaffold } from "./plan.js";
+import { DEFAULT_PLANNING_DIRNAME } from "./planning-paths.js";
+import { listPlanningChanges, showPlanningChange, validatePlanningChange } from "./plan-runtime.js";
+import { DEFAULT_REFS_DIRNAME, looksLikeRefsDir } from "./refs-paths.js";
+import { prepareCanonicalPlanningLayout } from "./planning-workspace.js";
 import { ReferencesStore } from "./storage.js";
+import { listSpecs, showSpec } from "./spec-runtime.js";
 import { summarizeArtifacts } from "./summarize.js";
+import { prepareCanonicalWorkspace } from "./workspace.js";
 
 const require = createRequire(import.meta.url);
 const { version: packageVersion } = require("../package.json") as { version: string };
@@ -33,13 +40,34 @@ Always open \`@/${refsDirName}/AGENTS.md\` when the request:
 - Refers to "reffy", "references", "explore", or "context layer"
 
 Use \`@/${refsDirName}/AGENTS.md\` to learn:
-- Reffy workflow and artifact conventions
-- How Reffy and OpenSpec should be sequenced
+- Reffy workflow for ideation, artifact indexing, and planning scaffolds
+- How Reffy owns the runtime while preserving ReffySpec planning files
 - How to store and consume ideation context in \`${refsDirName}/\`
 
 Keep this managed block so \`reffy init\` can refresh the instructions.
 
 <!-- REFFY:END -->`;
+}
+
+function buildReffySpecBlock(): string {
+  return `<!-- REFFYSPEC:START -->
+# ReffySpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open \`@/${DEFAULT_PLANNING_DIRNAME}/AGENTS.md\` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Needs the authoritative planning/spec workflow for this repo
+
+Use \`@/${DEFAULT_PLANNING_DIRNAME}/AGENTS.md\` to learn:
+- How to create and apply ReffySpec change proposals
+- ReffySpec format and conventions
+- Project structure and planning guidelines
+
+Keep this managed block so \`reffy init\` can refresh the instructions.
+
+<!-- REFFYSPEC:END -->`;
 }
 
 function buildReffyAgentsContent(refsDirName: string): string {
@@ -53,7 +81,7 @@ These instructions are for AI assistants working in this project.
 - If needed, read existing context in \`${refsDirName}/artifacts/\`.
 - Add/update exploratory artifacts and keep them concise.
 - Run \`reffy reindex\` and \`reffy validate\` after artifact changes.
-- After ideation approval, run \`reffy summarize --output json\` and pick only directly relevant artifacts for proposal citations.
+- Use \`reffy summarize --output json\` and \`reffy plan create\` to turn artifact context into planning scaffolds.
 
 ## When To Use Reffy
 
@@ -75,17 +103,20 @@ You can skip Reffy when the request is:
 2. Add or update artifacts to capture exploratory context.
 3. Run \`reffy reindex\` to index newly added files into \`${refsDirName}/manifest.json\`.
 4. Run \`reffy validate\` to verify manifest contract compliance.
+5. Run \`reffy plan create\` to generate proposal/tasks/spec scaffolds from selected artifacts when planning is ready.
 
-## Relationship To OpenSpec
+## Relationship To ReffySpec
 
-- Reffy is the ideation/context layer.
-- OpenSpec is the formal planning/spec layer.
-- After ideation stabilizes, hand off to OpenSpec by following \`@/openspec/AGENTS.md\`.
-- Do not duplicate full proposal/spec content in Reffy artifacts; summarize and link to OpenSpec outputs.
+- Reffy owns ideation artifacts, manifest metadata, and native planning scaffolds.
+- ReffySpec is the planning subsystem inside Reffy.
+- The vendored fork at \`/.vendor/ReffySpec\` is reference-only for v1; first-party behavior lives in this repo.
+- Reffy is the primary runtime authority for this project.
+- ReffySpec files live under \`${DEFAULT_PLANNING_DIRNAME}/\` as the canonical planning layout.
+- Do not duplicate full proposal/spec content in Reffy artifacts; generate and link planning outputs from them.
 
-## OpenSpec Citation Rules
+## ReffySpec Citation Rules
 
-When an OpenSpec proposal is informed by Reffy artifacts:
+When a ReffySpec proposal is informed by Reffy artifacts:
 - After ideation approval, run \`reffy summarize --output json\` to shortlist candidate artifacts.
 - Include a short "Reffy References" subsection in \`proposal.md\` (or design notes if more appropriate).
 - Cite only artifact filenames that directly informed the proposal's problem, scope, decisions, or constraints.
@@ -97,7 +128,7 @@ When an OpenSpec proposal is informed by Reffy artifacts:
 
 ### Reusable Proposal Snippet
 
-Use this in \`openspec/changes/<change-id>/proposal.md\`:
+Use this in \`${DEFAULT_PLANNING_DIRNAME}/changes/<change-id>/proposal.md\`:
 
 \`\`\`md
 ## Reffy References
@@ -120,9 +151,60 @@ No Reffy references used.
 `;
 }
 
+function buildReffySpecAgentsContent(): string {
+  return `# ReffySpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+## TL;DR Checklist
+
+- Read the relevant current specs in \`${DEFAULT_PLANNING_DIRNAME}/specs/\` before changing behavior.
+- Review active changes in \`${DEFAULT_PLANNING_DIRNAME}/changes/\` before drafting or implementing new work.
+- Use ReffySpec change proposals for new capabilities, breaking changes, or architecture shifts.
+- Keep current truth in \`${DEFAULT_PLANNING_DIRNAME}/specs/\` and proposed deltas in \`${DEFAULT_PLANNING_DIRNAME}/changes/\`.
+
+## ReffySpec Workflow
+
+1. Read \`${DEFAULT_PLANNING_DIRNAME}/project.md\` for project conventions.
+2. Inspect current specs in \`${DEFAULT_PLANNING_DIRNAME}/specs/\`.
+3. Inspect active changes in \`${DEFAULT_PLANNING_DIRNAME}/changes/\`.
+4. Draft or update proposal/design/tasks/spec files under \`${DEFAULT_PLANNING_DIRNAME}/changes/<change-id>/\`.
+5. Use native Reffy commands for routine planning workflow:
+   - \`reffy plan create\`
+   - \`reffy plan validate\`
+   - \`reffy plan list\`
+   - \`reffy plan show\`
+   - \`reffy plan archive\`
+   - \`reffy spec list\`
+   - \`reffy spec show\`
+
+## Directory Model
+
+- \`${DEFAULT_PLANNING_DIRNAME}/changes/\` contains active proposed changes.
+- \`${DEFAULT_PLANNING_DIRNAME}/changes/archive/\` contains historical archived changes.
+- \`${DEFAULT_PLANNING_DIRNAME}/specs/\` contains current truth for each capability.
+
+## Proposal Rules
+
+- Use a unique verb-led \`change-id\` in kebab-case.
+- Include \`proposal.md\`, \`tasks.md\`, optional \`design.md\`, and delta specs per affected capability.
+- Delta specs must use \`## ADDED|MODIFIED|REMOVED|RENAMED Requirements\`.
+- Each requirement must include at least one \`#### Scenario:\`.
+
+## Reffy Relationship
+
+- Reffy owns the runtime and artifact workflow.
+- ReffySpec is the canonical planning/spec surface.
+- Reffy artifacts in \`.reffy/\` should inform proposal/design content without duplicating the full planning files.
+`;
+}
+
 const REFFY_START = "<!-- REFFY:START -->";
 const REFFY_END = "<!-- REFFY:END -->";
+const REFFYSPEC_START = "<!-- REFFYSPEC:START -->";
+const REFFYSPEC_END = "<!-- REFFYSPEC:END -->";
 const OPENSPEC_START = "<!-- OPENSPEC:START -->";
+const OPENSPEC_END = "<!-- OPENSPEC:END -->";
 
 function upsertReffyBlock(content: string): string {
   return upsertReffyBlockForDir(content, DEFAULT_REFS_DIRNAME);
@@ -145,10 +227,33 @@ function upsertReffyBlockForDir(content: string, refsDirName: string): string {
   return content.trim().length > 0 ? `${reffyBlock}\n\n${content.trimStart()}` : `${reffyBlock}\n`;
 }
 
-async function initAgents(repoRoot: string): Promise<{ root_agents_path: string; reffy_agents_path: string }> {
-  const refsDirName = resolveRefsDirName(repoRoot);
+function upsertPlanningBlock(content: string): string {
+  const reffyspecBlock = buildReffySpecBlock();
+
+  if (content.includes(REFFYSPEC_START) && content.includes(REFFYSPEC_END)) {
+    const prefix = content.split(REFFYSPEC_START)[0] ?? "";
+    const suffix = content.split(REFFYSPEC_END, 2)[1] ?? "";
+    const trimmedSuffix = suffix.trimStart();
+    return trimmedSuffix.length > 0 ? `${prefix}${reffyspecBlock}\n\n${trimmedSuffix}` : `${prefix}${reffyspecBlock}\n`;
+  }
+
+  if (content.includes(OPENSPEC_START) && content.includes(OPENSPEC_END)) {
+    const prefix = content.split(OPENSPEC_START)[0] ?? "";
+    const suffix = content.split(OPENSPEC_END, 2)[1] ?? "";
+    const trimmedSuffix = suffix.trimStart();
+    return trimmedSuffix.length > 0 ? `${prefix}${reffyspecBlock}\n\n${trimmedSuffix}` : `${prefix}${reffyspecBlock}\n`;
+  }
+
+  return content.trim().length > 0 ? `${content.trimEnd()}\n\n${reffyspecBlock}\n` : `${reffyspecBlock}\n`;
+}
+
+async function initAgents(
+  repoRoot: string,
+): Promise<{ root_agents_path: string; reffy_agents_path: string; reffyspec_agents_path: string }> {
+  const refsDirName = DEFAULT_REFS_DIRNAME;
   const agentsPath = path.join(repoRoot, "AGENTS.md");
   const reffyAgentsPath = path.join(repoRoot, refsDirName, "AGENTS.md");
+  const reffyspecAgentsPath = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "AGENTS.md");
   let content = "";
   try {
     content = await fs.readFile(agentsPath, "utf8");
@@ -156,11 +261,13 @@ async function initAgents(repoRoot: string): Promise<{ root_agents_path: string;
     content = "";
   }
 
-  const updated = upsertReffyBlockForDir(content, refsDirName);
+  const updated = upsertPlanningBlock(upsertReffyBlockForDir(content, refsDirName));
   await fs.mkdir(path.dirname(reffyAgentsPath), { recursive: true });
+  await fs.mkdir(path.dirname(reffyspecAgentsPath), { recursive: true });
   await fs.writeFile(agentsPath, updated, "utf8");
   await fs.writeFile(reffyAgentsPath, buildReffyAgentsContent(refsDirName), "utf8");
-  return { root_agents_path: agentsPath, reffy_agents_path: reffyAgentsPath };
+  await fs.writeFile(reffyspecAgentsPath, buildReffySpecAgentsContent(), "utf8");
+  return { root_agents_path: agentsPath, reffy_agents_path: reffyAgentsPath, reffyspec_agents_path: reffyspecAgentsPath };
 }
 
 function pathExists(targetPath: string): boolean {
@@ -238,6 +345,43 @@ interface DiagramCliArgs {
 
 type DiagramStringOptionKey = "theme" | "bg" | "fg" | "line" | "accent" | "muted" | "surface" | "border" | "font";
 
+interface PlanCliArgs {
+  repoRoot: string;
+  changeId: string;
+  title?: string;
+  artifactFilters: string[];
+  includeAllArtifacts: boolean;
+  overwrite: boolean;
+}
+
+function getPlanPositionalArgs(argv: string[]): string[] {
+  const positionals: string[] = [];
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--repo" || arg === "--output" || arg === "--change-id" || arg === "--title" || arg === "--artifacts") {
+      i += 1;
+      continue;
+    }
+    if (
+      arg.startsWith("--repo=") ||
+      arg.startsWith("--output=") ||
+      arg.startsWith("--change-id=") ||
+      arg.startsWith("--title=") ||
+      arg.startsWith("--artifacts=") ||
+      arg === "--json" ||
+      arg === "--all" ||
+      arg === "--force"
+    ) {
+      continue;
+    }
+    if (arg.startsWith("--")) continue;
+    positionals.push(arg);
+  }
+
+  return positionals;
+}
+
 function parseOutputMode(argv: string[]): OutputMode {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -280,10 +424,13 @@ function usage(): string {
     "Commands:",
     "  init       Ensure root AGENTS.md block and .reffy/AGENTS.md are up to date.",
     "  bootstrap  Run init, ensure .reffy structure exists, then reindex artifacts.",
+    "  migrate    Migrate a legacy .references workspace to the canonical .reffy layout.",
     "  doctor     Diagnose required Reffy setup and optional tool availability.",
     "  reindex    Scan .reffy/artifacts and add missing files to manifest.",
     "  validate   Validate .reffy/manifest.json against manifest v1 contract.",
     "  summarize  Generate a read-only summary of indexed Reffy artifacts.",
+    "  plan       Generate and manage ReffySpec planning scaffolds from indexed Reffy artifacts.",
+    "  spec       Inspect current specs from the ReffySpec layout.",
     "  diagram    Render Mermaid diagrams (supports SVG and ASCII).",
   ].join("\n");
 }
@@ -293,7 +440,7 @@ function diagramUsage(): string {
     "Usage: reffy diagram render [--repo PATH] [--input PATH|--stdin] [--format svg|ascii] [--output PATH]",
     "",
     "Options:",
-    "  --input PATH      Read Mermaid (or OpenSpec spec.md) from file",
+    "  --input PATH      Read Mermaid (or ReffySpec spec.md) from file",
     "  --stdin           Read Mermaid text from stdin",
     "  --format VALUE    Output format: svg (default) or ascii",
     "  --output PATH     Write rendered result to file instead of stdout",
@@ -306,6 +453,32 @@ function diagramUsage(): string {
     "  --surface HEX     SVG color override for node surfaces",
     "  --border HEX      SVG color override for node borders",
     "  --font NAME       SVG font family override",
+  ].join("\n");
+}
+
+function specUsage(): string {
+  return [
+    "Usage:",
+    "  reffy spec list [--repo PATH] [--output text|json]",
+    "  reffy spec show <spec-id> [--repo PATH] [--output text|json]",
+  ].join("\n");
+}
+
+function planUsage(): string {
+  return [
+    "Usage:",
+    "  reffy plan create --change-id ID [--repo PATH] [--artifacts file1.md,file2.md|--all] [--title TEXT]",
+    "  reffy plan validate <change-id> [--repo PATH] [--output text|json]",
+    "  reffy plan list [--repo PATH] [--output text|json]",
+    "  reffy plan show <change-id> [--repo PATH] [--output text|json]",
+    "  reffy plan archive <change-id> [--repo PATH] [--output text|json]",
+    "",
+    "Options:",
+    `  --change-id ID     ${DEFAULT_PLANNING_DIRNAME} change id to create`,
+    "  --title TEXT       Human-readable proposal title",
+    "  --artifacts LIST   Comma-separated artifact filenames or ids to link",
+    "  --all              Use all indexed artifacts as planning inputs",
+    "  --force            Overwrite an existing non-empty change directory",
   ].join("\n");
 }
 
@@ -406,6 +579,83 @@ function parseDiagramArgs(argv: string[]): DiagramCliArgs {
   return args;
 }
 
+function parsePlanArgs(argv: string[]): PlanCliArgs {
+  const repoRoot = parseRepoArg(argv);
+  const args: PlanCliArgs = {
+    repoRoot,
+    changeId: "",
+    artifactFilters: [],
+    includeAllArtifacts: false,
+    overwrite: false,
+  };
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--repo") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--repo=")) continue;
+    if (arg === "--json") continue;
+    if (arg === "--output") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--output=")) continue;
+
+    if (arg === "--change-id") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--change-id requires a value");
+      args.changeId = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--change-id=")) {
+      args.changeId = arg.split("=", 2)[1] ?? "";
+      continue;
+    }
+    if (arg === "--title") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--title requires a value");
+      args.title = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--title=")) {
+      args.title = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--artifacts") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--artifacts requires a comma-separated value");
+      args.artifactFilters = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--artifacts=")) {
+      const value = arg.split("=", 2)[1] ?? "";
+      args.artifactFilters = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+      continue;
+    }
+    if (arg === "--all") {
+      args.includeAllArtifacts = true;
+      continue;
+    }
+    if (arg === "--force") {
+      args.overwrite = true;
+      continue;
+    }
+
+    throw new Error(`Unknown plan option: ${arg}`);
+  }
+
+  if (!args.changeId) {
+    throw new Error("--change-id is required");
+  }
+
+  return args;
+}
+
 function printSection(title: string, values: string[]): void {
   console.log(`${title}:`);
   if (values.length === 0) {
@@ -443,6 +693,7 @@ async function main(): Promise<number> {
     }
 
     const parsed = parseDiagramArgs(diagramArgs);
+    await prepareCanonicalPlanningLayout(parsed.repoRoot);
     const rendered = await renderDiagram({
       repoRoot: parsed.repoRoot,
       inputPath: parsed.inputPath,
@@ -472,30 +723,281 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  if (command === "plan") {
+    const [subcommand, ...planArgs] = rest;
+    if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+      console.error(planUsage());
+      return 1;
+    }
+
+    if (subcommand === "create") {
+      const output = parseOutputMode(planArgs);
+      const parsed = parsePlanArgs(planArgs);
+      await prepareCanonicalPlanningLayout(parsed.repoRoot);
+      const store = new ReferencesStore(parsed.repoRoot);
+      const validation = await store.validateManifest();
+      if (!validation.ok) {
+        const payload = { status: "error", command: "plan", subcommand: "create", ...validation };
+        if (output === "json") {
+          printResult(output, payload);
+        } else {
+          console.error(`Cannot create plan: manifest invalid (${String(validation.errors.length)} error(s))`);
+        }
+        return 1;
+      }
+
+      const result = await createPlanScaffold(store, {
+        changeId: parsed.changeId,
+        title: parsed.title,
+        artifactFilters: parsed.artifactFilters,
+        includeAllArtifacts: parsed.includeAllArtifacts,
+        overwrite: parsed.overwrite,
+      });
+      const payload = { status: "ok", command: "plan", subcommand: "create", ...result };
+      if (output === "json") {
+        printResult(output, payload);
+      } else {
+        console.log(`Created ${result.change_dir}`);
+        console.log(`Artifacts linked: ${String(result.linked_artifacts)}`);
+        for (const file of result.written_files) {
+          console.log(`- ${file}`);
+        }
+      }
+      return 0;
+    }
+
+    const output = parseOutputMode(planArgs);
+    const repoRoot = parseRepoArg(planArgs);
+    await prepareCanonicalPlanningLayout(repoRoot);
+    const positionals = getPlanPositionalArgs(planArgs);
+
+    if (subcommand === "validate") {
+      const changeId = positionals[0];
+      if (!changeId) {
+        console.error("reffy plan validate requires a change id");
+        console.error(planUsage());
+        return 1;
+      }
+
+      const result = await validatePlanningChange(repoRoot, changeId);
+      const payload = { status: result.ok ? "ok" : "error", command: "plan", subcommand: "validate", ...result };
+      if (output === "json") {
+        printResult(output, payload);
+      } else if (result.ok) {
+        console.log(`Change "${changeId}" is valid`);
+        console.log(`Tasks: ${String(result.task_status.completed)}/${String(result.task_status.total)}`);
+        console.log(`Delta specs: ${String(result.delta_count)}`);
+        for (const warning of result.warnings) {
+          console.log(`warn: ${warning}`);
+        }
+      } else {
+        console.error(`Change "${changeId}" has issues`);
+        for (const error of result.errors) {
+          console.error(`error: ${error}`);
+        }
+        for (const warning of result.warnings) {
+          console.error(`warn: ${warning}`);
+        }
+      }
+      return result.ok ? 0 : 1;
+    }
+
+    if (subcommand === "list") {
+      const changes = await listPlanningChanges(repoRoot);
+      const payload = { status: "ok", command: "plan", subcommand: "list", changes };
+      if (output === "json") {
+        printResult(output, payload);
+      } else if (changes.length === 0) {
+        console.log("Changes:");
+        console.log("- (none)");
+      } else {
+        console.log("Changes:");
+        for (const change of changes) {
+          console.log(
+            `- ${change.id} - ${change.title} [deltas ${String(change.delta_count)}] [tasks ${String(change.task_status.completed)}/${String(change.task_status.total)}]`,
+          );
+        }
+      }
+      return 0;
+    }
+
+    if (subcommand === "show") {
+      const changeId = positionals[0];
+      if (!changeId) {
+        console.error("reffy plan show requires a change id");
+        console.error(planUsage());
+        return 1;
+      }
+
+      const result = await showPlanningChange(repoRoot, changeId);
+      const payload = { status: "ok", command: "plan", subcommand: "show", change: result };
+      if (output === "json") {
+        printResult(output, payload);
+      } else {
+        console.log(`# ${result.title}`);
+        console.log("");
+        console.log(result.proposal.trim());
+        console.log("");
+        console.log("## Tasks");
+        console.log(result.tasks.trim());
+        if (result.design) {
+          console.log("");
+          console.log("## Design");
+          console.log(result.design.trim());
+        }
+        if (result.specs.length > 0) {
+          console.log("");
+          console.log("## Specs");
+          for (const spec of result.specs) {
+            console.log(`### ${spec.capability}`);
+            console.log(spec.content.trim());
+          }
+        }
+      }
+      return 0;
+    }
+
+    if (subcommand === "archive") {
+      const changeId = positionals[0];
+      if (!changeId) {
+        console.error("reffy plan archive requires a change id");
+        console.error(planUsage());
+        return 1;
+      }
+
+      const result = await archivePlanningChange(repoRoot, changeId);
+      const payload = { status: "ok", command: "plan", subcommand: "archive", ...result };
+      if (output === "json") {
+        printResult(output, payload);
+      } else {
+        console.log(`Archived ${changeId} to ${result.archive_dir}`);
+        console.log(`Updated specs: ${String(result.updated_specs.length)}`);
+        console.log(`Linked artifacts updated: ${String(result.linked_artifacts)}`);
+      }
+      return 0;
+    }
+
+    {
+      console.error(`Unknown plan subcommand: ${subcommand}`);
+      console.error(planUsage());
+      return 1;
+    }
+  }
+
+  if (command === "spec") {
+    const [subcommand, ...specArgs] = rest;
+    if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+      console.error(specUsage());
+      return 1;
+    }
+
+    const output = parseOutputMode(specArgs);
+    const repoRoot = parseRepoArg(specArgs);
+    await prepareCanonicalPlanningLayout(repoRoot);
+    const positionals = getPlanPositionalArgs(specArgs);
+
+    if (subcommand === "list") {
+      const specs = await listSpecs(repoRoot);
+      const payload = { status: "ok", command: "spec", subcommand: "list", specs };
+      if (output === "json") {
+        printResult(output, payload);
+      } else if (specs.length === 0) {
+        console.log("Specs:");
+        console.log("- (none)");
+      } else {
+        console.log("Specs:");
+        for (const spec of specs) {
+          console.log(`- ${spec.id} - ${spec.title} [requirements ${String(spec.requirement_count)}]`);
+        }
+      }
+      return 0;
+    }
+
+    if (subcommand === "show") {
+      const specId = positionals[0];
+      if (!specId) {
+        console.error("reffy spec show requires a spec id");
+        console.error(specUsage());
+        return 1;
+      }
+
+      const result = await showSpec(repoRoot, specId);
+      const payload = { status: "ok", command: "spec", subcommand: "show", spec: result };
+      if (output === "json") {
+        printResult(output, payload);
+      } else {
+        console.log(`# ${result.title}`);
+        if (result.purpose) {
+          console.log("");
+          console.log(`Purpose: ${result.purpose}`);
+        }
+        console.log("");
+        console.log(result.spec.trim());
+        if (result.design) {
+          console.log("");
+          console.log("## Design");
+          console.log(result.design.trim());
+        }
+      }
+      return 0;
+    }
+
+    console.error(`Unknown spec subcommand: ${subcommand}`);
+    console.error(specUsage());
+    return 1;
+  }
+
   const output = parseOutputMode(rest);
 
   if (command === "init") {
     printBanner(output);
     const repoRoot = parseRepoArg(rest);
+    const workspace = await prepareCanonicalWorkspace(repoRoot);
+    const planning = await prepareCanonicalPlanningLayout(repoRoot);
     const agents = await initAgents(repoRoot);
-    const payload = { status: "ok", command: "init", ...agents };
+    const payload = {
+      status: "ok",
+      command: "init",
+      workspace_mode: workspace.state.mode,
+      migrated_workspace: workspace.migrated,
+      created_workspace: workspace.created,
+      planning_mode: planning.state.mode,
+      migrated_planning_layout: planning.migrated,
+      created_planning_layout: planning.created,
+      ...agents,
+    };
     if (output === "json") {
       printResult(output, payload);
     } else {
+      if (workspace.message) {
+        console.log(workspace.message);
+      }
+      if (planning.message) {
+        console.log(planning.message);
+      }
       console.log(`Updated ${agents.root_agents_path}`);
       console.log(`Updated ${agents.reffy_agents_path}`);
+      console.log(`Updated ${agents.reffyspec_agents_path}`);
     }
     return 0;
   }
 
   if (command === "bootstrap") {
     const repoRoot = parseRepoArg(rest);
+    const workspace = await prepareCanonicalWorkspace(repoRoot);
+    const planning = await prepareCanonicalPlanningLayout(repoRoot);
     const agents = await initAgents(repoRoot);
     const store = new ReferencesStore(repoRoot);
     const reindex = await store.reindexArtifacts();
     const payload = {
       status: "ok",
       command: "bootstrap",
+      workspace_mode: workspace.state.mode,
+      migrated_workspace: workspace.migrated,
+      created_workspace: workspace.created,
+      planning_mode: planning.state.mode,
+      migrated_planning_layout: planning.migrated,
+      created_planning_layout: planning.created,
       ...agents,
       refs_dir: store.refsDir,
       manifest_path: store.manifestPath,
@@ -504,16 +1006,55 @@ async function main(): Promise<number> {
     if (output === "json") {
       printResult(output, payload);
     } else {
+      if (workspace.message) {
+        console.log(workspace.message);
+      }
+      if (planning.message) {
+        console.log(planning.message);
+      }
       console.log(`Bootstrapped ${store.refsDir}`);
       console.log(`Updated ${agents.root_agents_path}`);
       console.log(`Updated ${agents.reffy_agents_path}`);
+      console.log(`Updated ${agents.reffyspec_agents_path}`);
       console.log(`Reindex: added=${String(reindex.added)} removed=${String(reindex.removed)} total=${String(reindex.total)}`);
+    }
+    return 0;
+  }
+
+  if (command === "migrate") {
+    const repoRoot = parseRepoArg(rest);
+    const workspace = await prepareCanonicalWorkspace(repoRoot);
+    const planning = await prepareCanonicalPlanningLayout(repoRoot);
+    const agents = await initAgents(repoRoot);
+    const payload = {
+      status: "ok",
+      command: "migrate",
+      workspace_mode: workspace.state.mode,
+      migrated_workspace: workspace.migrated,
+      created_workspace: workspace.created,
+      planning_mode: planning.state.mode,
+      migrated_planning_layout: planning.migrated,
+      created_planning_layout: planning.created,
+      refs_dir: workspace.state.canonicalDir,
+      ...agents,
+    };
+    if (output === "json") {
+      printResult(output, payload);
+    } else {
+      console.log(workspace.message ?? `Workspace ready at ${workspace.state.canonicalDir}`);
+      if (planning.message) {
+        console.log(planning.message);
+      }
+      console.log(`Updated ${agents.root_agents_path}`);
+      console.log(`Updated ${agents.reffy_agents_path}`);
+      console.log(`Updated ${agents.reffyspec_agents_path}`);
     }
     return 0;
   }
 
   if (command === "reindex") {
     const repoRoot = parseRepoArg(rest);
+    await prepareCanonicalPlanningLayout(repoRoot);
     const store = new ReferencesStore(repoRoot);
     const reindex = await store.reindexArtifacts();
     const payload = { status: "ok", command: "reindex", ...reindex };
@@ -529,6 +1070,7 @@ async function main(): Promise<number> {
 
   if (command === "doctor") {
     const repoRoot = parseRepoArg(rest);
+    await prepareCanonicalPlanningLayout(repoRoot);
     const report = await runDoctor(repoRoot);
     const status = report.summary.required_failed > 0 ? "error" : "ok";
     const payload = { status, command: "doctor", ...report };
@@ -557,6 +1099,7 @@ async function main(): Promise<number> {
 
   if (command === "validate") {
     const repoRoot = parseRepoArg(rest);
+    await prepareCanonicalPlanningLayout(repoRoot);
     const store = new ReferencesStore(repoRoot);
     const result = await store.validateManifest();
     const payload = { status: result.ok ? "ok" : "error", command: "validate", ...result };
@@ -583,6 +1126,7 @@ async function main(): Promise<number> {
 
   if (command === "summarize") {
     const repoRoot = parseRepoArg(rest);
+    await prepareCanonicalPlanningLayout(repoRoot);
     const store = new ReferencesStore(repoRoot);
     const validation = await store.validateManifest();
     if (!validation.ok) {
