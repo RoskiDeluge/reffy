@@ -12,6 +12,15 @@ Reffy is a CLI-first planning system for agent-friendly development workflows. I
 npm install -g reffy-cli@latest
 ```
 
+## Release Security
+
+Reffy publishes from GitHub Actions using npm trusted publishing with provenance enabled.
+
+To verify an installed package:
+
+- Check the package provenance details on npm.
+- Run `npm audit signatures` after install to verify registry signatures and available provenance attestations.
+
 ## Quickstart (CLI-only)
 
 Inside your project:
