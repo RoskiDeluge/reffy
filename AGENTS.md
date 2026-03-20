@@ -11,8 +11,8 @@ Always open `@/.reffy/AGENTS.md` when the request:
 - Refers to "reffy", "references", "explore", or "context layer"
 
 Use `@/.reffy/AGENTS.md` to learn:
-- Reffy workflow and artifact conventions
-- How Reffy owns the runtime while preserving ReffySpec workflow files
+- Reffy workflow for ideation, artifact indexing, and planning scaffolds
+- How Reffy owns the runtime while preserving ReffySpec planning files
 - How to store and consume ideation context in `.reffy/`
 
 Keep this managed block so `reffy init` can refresh the instructions.
@@ -27,12 +27,12 @@ These instructions are for AI assistants working in this project.
 Always open `@/reffyspec/AGENTS.md` when the request:
 - Mentions planning or proposals (words like proposal, spec, change, plan)
 - Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
+- Needs the authoritative planning/spec workflow for this repo
 
 Use `@/reffyspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
+- How to create and apply ReffySpec change proposals
+- ReffySpec format and conventions
+- Project structure and planning guidelines
 
 Keep this managed block so `reffy init` can refresh the instructions.
 

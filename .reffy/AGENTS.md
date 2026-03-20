@@ -5,10 +5,10 @@ These instructions are for AI assistants working in this project.
 ## TL;DR Checklist
 
 - Decide whether Reffy ideation is needed for this request.
-- If needed, read existing context in `.references/artifacts/`.
+- If needed, read existing context in `.reffy/artifacts/`.
 - Add/update exploratory artifacts and keep them concise.
 - Run `reffy reindex` and `reffy validate` after artifact changes.
-- Use `reffy summarize --output json` and `reffy plan create` when artifacts should drive formal planning outputs.
+- Use `reffy summarize --output json` and `reffy plan create` to turn artifact context into planning scaffolds.
 
 ## When To Use Reffy
 
@@ -26,16 +26,19 @@ You can skip Reffy when the request is:
 
 ## Reffy Workflow
 
-1. Read existing artifacts in `.references/artifacts/`.
+1. Read existing artifacts in `.reffy/artifacts/`.
 2. Add or update artifacts to capture exploratory context.
-3. Run `reffy reindex` to index newly added files into `.references/manifest.json`.
+3. Run `reffy reindex` to index newly added files into `.reffy/manifest.json`.
 4. Run `reffy validate` to verify manifest contract compliance.
-5. Use `reffy plan create` when the artifact set is ready to drive a formal planning change.
+5. Run `reffy plan create` to generate proposal/tasks/spec scaffolds from selected artifacts when planning is ready.
 
 ## Relationship To ReffySpec
 
-- Reffy owns ideation artifacts, native planning/runtime behavior, and traceability.
-- ReffySpec files live under `reffyspec/` as the canonical planning/spec layout.
+- Reffy owns ideation artifacts, manifest metadata, and native planning scaffolds.
+- ReffySpec is the planning subsystem inside Reffy.
+- The vendored fork at `/.vendor/ReffySpec` is reference-only for v1; first-party behavior lives in this repo.
+- Reffy is the primary runtime authority for this project.
+- ReffySpec files live under `reffyspec/` as the canonical planning layout.
 - Do not duplicate full proposal/spec content in Reffy artifacts; generate and link planning outputs from them.
 
 ## ReffySpec Citation Rules
@@ -68,7 +71,7 @@ No Reffy references used.
 
 ## Artifact Conventions
 
-- Treat `.references/` as a repository-local guidance and ideation context layer.
+- Treat `.reffy/` as a repository-local guidance and ideation context layer.
 - Keep artifact names clear and stable.
 - Prefer markdown notes for exploratory content.
 - Keep manifests machine-readable and schema-compliant (version 1).
