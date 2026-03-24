@@ -17,14 +17,14 @@ npm install -g reffy-cli@latest
 Inside your project:
 
 ```bash
+cd your-project
 reffy init
-reffy bootstrap
 ```
 
 Command summary:
 
-- `reffy init`: idempotently creates/updates root `AGENTS.md` managed block and `.reffy/AGENTS.md`.
-- `reffy bootstrap`: idempotently runs `init`, ensures `.reffy/` structure exists, then reindexes artifacts.
+- `reffy init`: runs the canonical first-run setup flow, creates the `.reffy/` and `reffyspec/` structure, writes managed instructions, reindexes artifacts, and on first-run text output prints a copy/paste instruction for your agent harness.
+- `reffy bootstrap`: compatibility alias for `reffy init`.
 - `reffy migrate`: migrates a legacy `.references/` workspace into `.reffy/`.
 - `reffy doctor`: diagnoses required Reffy setup and workspace health.
 - `reffy reindex`: reconciles `.reffy/manifest.json` with `.reffy/artifacts` by adding missing files and removing stale entries.
@@ -63,7 +63,7 @@ reffy diagram render --input reffyspec/specs/auth/spec.md --format svg --output 
 
 A practical pattern is:
 
-1. Use Reffy for ideation and context capture in `.reffy/`.
+1. Use Reffy for ideation and context capture in `.reffy/artifacts/`.
 2. Use Reffy to scaffold and manage planning files in `reffyspec/`.
 3. Keep a clear traceable path from exploratory artifacts to formal specs.
 4. Use Reffy commands for day-to-day workflow.
@@ -75,14 +75,7 @@ Reference implementation in this repo:
 - `AGENTS.md`: ReffySpec block routes planning/proposal/spec requests to `@/reffyspec/AGENTS.md`.
 - `.reffy/AGENTS.md`: defines the artifact and ideation workflow.
 - `reffyspec/AGENTS.md`: defines the ReffySpec planning/spec workflow conventions used in this repo.
-- `src/cli.ts`: `reffy init`/`reffy bootstrap` enforce this integration by idempotently writing the managed guidance into `AGENTS.md`, `.reffy/AGENTS.md`, and `reffyspec/AGENTS.md`.
-
-Practical connection pattern for any repo:
-
-1. Run `reffy init` to install/refresh the Reffy instruction layer.
-2. Keep ReffySpec instructions in the same root `AGENTS.md`.
-3. During planning, cite only relevant Reffy artifacts from `.reffy/artifacts/` in your proposal/spec docs.
-4. Prefer Reffy commands for day-to-day workflow.
+- `reffyspec/project.md`: captures durable project context for agents, including purpose, stack, architecture, conventions, and constraints.
 
 ## Develop
 
@@ -105,4 +98,3 @@ To verify an installed package:
 
 - Check the package provenance details on npm.
 - Run `npm audit signatures` after install to verify registry signatures and available provenance attestations.
-

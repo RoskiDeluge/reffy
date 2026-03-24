@@ -28,6 +28,11 @@ const REFFY_ASCII = [
   "                   |___/ ",
 ].join("\n");
 
+const BOOTSTRAP_AGENT_INSTRUCTION = [
+  'Please read `AGENTS.md` and help me fill out the project context template in `reffyspec/project.md`',
+  "with details about my project, tech stack, architecture, and conventions.",
+].join(" ");
+
 function buildReffyBlock(refsDirName: string): string {
   return `<!-- REFFY:START -->
 # Reffy Instructions
@@ -414,6 +419,65 @@ function printBanner(mode: OutputMode): void {
   }
 }
 
+function shouldPrintBootstrapOnboarding(workspaceCreated: boolean, workspaceMigrated: boolean, planningCreated: boolean, planningMigrated: boolean): boolean {
+  return workspaceCreated || workspaceMigrated || planningCreated || planningMigrated;
+}
+
+function printBootstrapOnboarding(): void {
+  console.log("");
+  console.log("Next step for your agent harness:");
+  console.log("Copy and paste this into your conversation with your chosen agent:");
+  console.log("");
+  console.log(BOOTSTRAP_AGENT_INSTRUCTION);
+}
+
+async function runSetupCommand(
+  commandName: "init" | "bootstrap",
+  output: OutputMode,
+  repoRoot: string,
+): Promise<number> {
+  const workspace = await prepareCanonicalWorkspace(repoRoot);
+  const planning = await prepareCanonicalPlanningLayout(repoRoot);
+  const agents = await initAgents(repoRoot);
+  const store = new ReferencesStore(repoRoot);
+  const reindex = await store.reindexArtifacts();
+  const payload = {
+    status: "ok",
+    command: commandName,
+    workspace_mode: workspace.state.mode,
+    migrated_workspace: workspace.migrated,
+    created_workspace: workspace.created,
+    planning_mode: planning.state.mode,
+    migrated_planning_layout: planning.migrated,
+    created_planning_layout: planning.created,
+    ...agents,
+    refs_dir: store.refsDir,
+    manifest_path: store.manifestPath,
+    reindex,
+  };
+
+  if (output === "json") {
+    printResult(output, payload);
+    return 0;
+  }
+
+  if (workspace.message) {
+    console.log(workspace.message);
+  }
+  if (planning.message) {
+    console.log(planning.message);
+  }
+  console.log(`${commandName === "init" ? "Initialized" : "Bootstrapped"} ${store.refsDir}`);
+  console.log(`Updated ${agents.root_agents_path}`);
+  console.log(`Updated ${agents.reffy_agents_path}`);
+  console.log(`Updated ${agents.reffyspec_agents_path}`);
+  console.log(`Reindex: added=${String(reindex.added)} removed=${String(reindex.removed)} total=${String(reindex.total)}`);
+  if (shouldPrintBootstrapOnboarding(workspace.created, workspace.migrated, planning.created, planning.migrated)) {
+    printBootstrapOnboarding();
+  }
+  return 0;
+}
+
 function usage(): string {
   return [
     "Usage: reffy <command> [--repo PATH] [--output text|json]",
@@ -422,8 +486,8 @@ function usage(): string {
     "  --version  Print the installed reffy package version.",
     "",
     "Commands:",
-    "  init       Ensure root AGENTS.md block and .reffy/AGENTS.md are up to date.",
-    "  bootstrap  Run init, ensure .reffy structure exists, then reindex artifacts.",
+    "  init       Run the canonical first-run setup flow and refresh managed instructions.",
+    "  bootstrap  Compatibility alias for init.",
     "  migrate    Migrate a legacy .references workspace to the canonical .reffy layout.",
     "  doctor     Diagnose required Reffy setup and optional tool availability.",
     "  reindex    Scan .reffy/artifacts and add missing files to manifest.",
@@ -952,73 +1016,12 @@ async function main(): Promise<number> {
   if (command === "init") {
     printBanner(output);
     const repoRoot = parseRepoArg(rest);
-    const workspace = await prepareCanonicalWorkspace(repoRoot);
-    const planning = await prepareCanonicalPlanningLayout(repoRoot);
-    const agents = await initAgents(repoRoot);
-    const payload = {
-      status: "ok",
-      command: "init",
-      workspace_mode: workspace.state.mode,
-      migrated_workspace: workspace.migrated,
-      created_workspace: workspace.created,
-      planning_mode: planning.state.mode,
-      migrated_planning_layout: planning.migrated,
-      created_planning_layout: planning.created,
-      ...agents,
-    };
-    if (output === "json") {
-      printResult(output, payload);
-    } else {
-      if (workspace.message) {
-        console.log(workspace.message);
-      }
-      if (planning.message) {
-        console.log(planning.message);
-      }
-      console.log(`Updated ${agents.root_agents_path}`);
-      console.log(`Updated ${agents.reffy_agents_path}`);
-      console.log(`Updated ${agents.reffyspec_agents_path}`);
-    }
-    return 0;
+    return await runSetupCommand("init", output, repoRoot);
   }
 
   if (command === "bootstrap") {
     const repoRoot = parseRepoArg(rest);
-    const workspace = await prepareCanonicalWorkspace(repoRoot);
-    const planning = await prepareCanonicalPlanningLayout(repoRoot);
-    const agents = await initAgents(repoRoot);
-    const store = new ReferencesStore(repoRoot);
-    const reindex = await store.reindexArtifacts();
-    const payload = {
-      status: "ok",
-      command: "bootstrap",
-      workspace_mode: workspace.state.mode,
-      migrated_workspace: workspace.migrated,
-      created_workspace: workspace.created,
-      planning_mode: planning.state.mode,
-      migrated_planning_layout: planning.migrated,
-      created_planning_layout: planning.created,
-      ...agents,
-      refs_dir: store.refsDir,
-      manifest_path: store.manifestPath,
-      reindex,
-    };
-    if (output === "json") {
-      printResult(output, payload);
-    } else {
-      if (workspace.message) {
-        console.log(workspace.message);
-      }
-      if (planning.message) {
-        console.log(planning.message);
-      }
-      console.log(`Bootstrapped ${store.refsDir}`);
-      console.log(`Updated ${agents.root_agents_path}`);
-      console.log(`Updated ${agents.reffy_agents_path}`);
-      console.log(`Updated ${agents.reffyspec_agents_path}`);
-      console.log(`Reindex: added=${String(reindex.added)} removed=${String(reindex.removed)} total=${String(reindex.total)}`);
-    }
-    return 0;
+    return await runSetupCommand("bootstrap", output, repoRoot);
   }
 
   if (command === "migrate") {

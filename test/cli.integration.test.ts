@@ -209,13 +209,15 @@ describe("cli summarize", () => {
 });
 
 describe("cli init", () => {
-  it("prints ASCII banner in text output", async () => {
+  it("prints ASCII banner and full setup output in text mode", async () => {
     const repo = await createTempRepo();
     const result = await runCli(["init", "--repo", repo.repoRoot, "--output", "text"]);
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("__  __");
+    expect(result.stdout).toContain("Initialized");
     expect(result.stdout).toContain("Updated");
+    expect(result.stdout).toContain("Reindex: added=0 removed=0 total=0");
   });
 
   it("writes AGENTS content that describes Reffy as ideation plus planning", async () => {
@@ -233,6 +235,63 @@ describe("cli init", () => {
     expect(reffyAgents).toContain("Reffy is the primary runtime authority for this project.");
     expect(reffyAgents).toContain("ReffySpec files live under `reffyspec/` as the canonical planning layout.");
     expect(reffyspecAgents).toContain("`reffyspec/specs/`");
+  });
+
+  it("prints a copy/paste agent instruction on first-run text output", async () => {
+    const repo = await createTempRepo();
+    await overwriteFile(path.join(repo.repoRoot, "AGENTS.md"), "# Test AGENTS\n");
+
+    const result = await runCli(["init", "--repo", repo.repoRoot, "--output", "text"]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Initialized");
+    expect(result.stdout).toContain("Next step for your agent harness:");
+    expect(result.stdout).toContain("Copy and paste this into your conversation with your chosen agent:");
+    expect(result.stdout).toContain(
+      "Please read `AGENTS.md` and help me fill out the project context template in `reffyspec/project.md`",
+    );
+    expect(result.stdout).toContain("with details about my project, tech stack, architecture, and conventions.");
+  });
+
+  it("creates a default reffyspec project context template", async () => {
+    const repo = await createTempRepo();
+
+    const result = await runCli(["init", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(0);
+
+    const projectContext = await readFile(path.join(repo.repoRoot, "reffyspec", "project.md"), "utf8");
+    expect(projectContext).toContain("# Project Context");
+    expect(projectContext).toContain("## Purpose");
+    expect(projectContext).toContain("[Describe your project's purpose and goals]");
+    expect(projectContext).toContain("## Tech Stack");
+    expect(projectContext).toContain("## External Dependencies");
+  });
+
+  it("does not repeat the agent instruction on idempotent reruns", async () => {
+    const repo = await createTempRepo();
+
+    const firstRun = await runCli(["init", "--repo", repo.repoRoot, "--output", "text"]);
+    expect(firstRun.code).toBe(0);
+    expect(firstRun.stdout).toContain("Next step for your agent harness:");
+
+    const secondRun = await runCli(["init", "--repo", repo.repoRoot, "--output", "text"]);
+    expect(secondRun.code).toBe(0);
+    expect(secondRun.stdout).not.toContain("Next step for your agent harness:");
+    expect(secondRun.stdout).not.toContain("Copy and paste this into your conversation with your chosen agent:");
+  });
+});
+
+describe("cli bootstrap", () => {
+  it("remains available as a compatibility alias", async () => {
+    const repo = await createTempRepo();
+
+    const result = await runCli(["bootstrap", "--repo", repo.repoRoot, "--output", "json"]);
+
+    expect(result.code).toBe(0);
+    const parsed = JSON.parse(result.stdout) as { command: string; refs_dir: string; manifest_path: string };
+    expect(parsed.command).toBe("bootstrap");
+    expect(await realpath(parsed.refs_dir)).toBe(await realpath(path.join(repo.repoRoot, ".reffy")));
+    expect(await realpath(parsed.manifest_path)).toBe(await realpath(path.join(repo.repoRoot, ".reffy", "manifest.json")));
   });
 });
 
