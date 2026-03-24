@@ -22,6 +22,11 @@ interface RequirementBlock {
   content: string;
 }
 
+interface ParsedDeltaRequirements {
+  added: RequirementBlock[];
+  modified: RequirementBlock[];
+}
+
 function archiveDatePrefix(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -53,20 +58,26 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
   return files.sort();
 }
 
-function parseAddedRequirements(content: string, relPath: string): RequirementBlock[] {
+function parseArchiveableRequirements(content: string, relPath: string): ParsedDeltaRequirements {
   const lines = content.split(/\r?\n/);
   const sectionTypes = new Set<string>();
-  const blocks: RequirementBlock[] = [];
-  let inAddedSection = false;
+  const added: RequirementBlock[] = [];
+  const modified: RequirementBlock[] = [];
+  let currentSectionType: "ADDED" | "MODIFIED" | null = null;
   let currentTitle: string | null = null;
   let currentLines: string[] = [];
 
   const flush = (): void => {
     if (!currentTitle) return;
-    blocks.push({
+    const block = {
       title: currentTitle,
       content: currentLines.join("\n").trimEnd(),
-    });
+    };
+    if (currentSectionType === "ADDED") {
+      added.push(block);
+    } else if (currentSectionType === "MODIFIED") {
+      modified.push(block);
+    }
     currentTitle = null;
     currentLines = [];
   };
@@ -77,7 +88,7 @@ function parseAddedRequirements(content: string, relPath: string): RequirementBl
       flush();
       const sectionType = sectionMatch[1] ?? "";
       sectionTypes.add(sectionType);
-      inAddedSection = sectionType === "ADDED";
+      currentSectionType = sectionType === "ADDED" || sectionType === "MODIFIED" ? sectionType : null;
       continue;
     }
 
@@ -96,18 +107,18 @@ function parseAddedRequirements(content: string, relPath: string): RequirementBl
 
   flush();
 
-  const unsupported = Array.from(sectionTypes).filter((sectionType) => sectionType !== "ADDED");
+  const unsupported = Array.from(sectionTypes).filter((sectionType) => sectionType !== "ADDED" && sectionType !== "MODIFIED");
   if (unsupported.length > 0) {
     throw new Error(`${relPath}: unsupported delta sections for archive: ${unsupported.join(", ")}`);
   }
-  if (!inAddedSection && sectionTypes.size === 0) {
+  if (sectionTypes.size === 0) {
     throw new Error(`${relPath}: no supported archiveable requirements found`);
   }
-  if (blocks.length === 0) {
-    throw new Error(`${relPath}: no ADDED requirements found to archive`);
+  if (added.length === 0 && modified.length === 0) {
+    throw new Error(`${relPath}: no archiveable requirements found`);
   }
 
-  return blocks;
+  return { added, modified };
 }
 
 function buildNewCurrentSpec(capability: string, changeId: string, blocks: RequirementBlock[]): string {
@@ -123,20 +134,90 @@ function buildNewCurrentSpec(capability: string, changeId: string, blocks: Requi
   ].join("\n");
 }
 
-function appendRequirementsToCurrentSpec(existing: string, blocks: RequirementBlock[], relPath: string): string {
+function parseCurrentSpecRequirementBlocks(existing: string, relPath: string): RequirementBlock[] {
   if (!existing.includes(REQUIREMENTS_HEADING)) {
     throw new Error(`${relPath}: current spec is missing a "## Requirements" section`);
   }
 
-  for (const block of blocks) {
-    const escaped = block.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const duplicatePattern = new RegExp(`^###\\s+Requirement:\\s+${escaped}\\s*$`, "m");
-    if (duplicatePattern.test(existing)) {
-      throw new Error(`${relPath}: current spec already contains requirement "${block.title}"`);
+  const lines = existing.split(/\r?\n/);
+  const blocks: RequirementBlock[] = [];
+  let inRequirements = false;
+  let currentTitle: string | null = null;
+  let currentLines: string[] = [];
+
+  const flush = (): void => {
+    if (!currentTitle) return;
+    blocks.push({
+      title: currentTitle,
+      content: currentLines.join("\n").trimEnd(),
+    });
+    currentTitle = null;
+    currentLines = [];
+  };
+
+  for (const line of lines) {
+    if (line.trim() === REQUIREMENTS_HEADING) {
+      inRequirements = true;
+      continue;
+    }
+
+    if (!inRequirements) {
+      continue;
+    }
+
+    if (/^##\s+/.test(line) && line.trim() !== REQUIREMENTS_HEADING) {
+      flush();
+      break;
+    }
+
+    const requirementMatch = line.match(REQUIREMENT_PATTERN);
+    if (requirementMatch) {
+      flush();
+      currentTitle = requirementMatch[1]?.trim() ?? "unknown";
+      currentLines = [line];
+      continue;
+    }
+
+    if (currentTitle) {
+      currentLines.push(line);
     }
   }
 
-  return `${existing.trimEnd()}\n\n${blocks.map((block) => block.content).join("\n\n")}\n`;
+  flush();
+  return blocks;
+}
+
+function mergeRequirementsIntoCurrentSpec(
+  existing: string,
+  delta: ParsedDeltaRequirements,
+  relPath: string,
+): string {
+  const currentBlocks = parseCurrentSpecRequirementBlocks(existing, relPath);
+  const currentTitles = new Set(currentBlocks.map((block) => block.title));
+
+  for (const block of delta.added) {
+    if (currentTitles.has(block.title)) {
+      throw new Error(`${relPath}: current spec already contains requirement "${block.title}"`);
+    }
+    currentBlocks.push(block);
+    currentTitles.add(block.title);
+  }
+
+  for (const block of delta.modified) {
+    const index = currentBlocks.findIndex((currentBlock) => currentBlock.title === block.title);
+    if (index < 0) {
+      throw new Error(`${relPath}: current spec is missing requirement "${block.title}" required for MODIFIED archive`);
+    }
+    currentBlocks[index] = block;
+  }
+
+  const requirementsHeadingIndex = existing.indexOf(REQUIREMENTS_HEADING);
+  if (requirementsHeadingIndex < 0) {
+    throw new Error(`${relPath}: current spec is missing a "## Requirements" section`);
+  }
+
+  const prefix = existing.slice(0, requirementsHeadingIndex + REQUIREMENTS_HEADING.length);
+  return `${prefix}\n${currentBlocks.map((block) => `\n${block.content}`).join("")}\n`;
 }
 
 async function buildSpecUpdates(repoRoot: string, changeId: string, changeDir: string): Promise<Map<string, string>> {
@@ -152,16 +233,22 @@ async function buildSpecUpdates(repoRoot: string, changeId: string, changeDir: s
 
     const deltaContent = await fs.readFile(deltaPath, "utf8");
     const relDeltaPath = path.relative(repoRoot, deltaPath).split(path.sep).join("/");
-    const blocks = parseAddedRequirements(deltaContent, relDeltaPath);
+    const delta = parseArchiveableRequirements(deltaContent, relDeltaPath);
     const currentSpecPath = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "specs", capability, "spec.md");
 
-    const nextContent = (await pathExists(currentSpecPath))
-      ? appendRequirementsToCurrentSpec(
+    const currentSpecExists = await pathExists(currentSpecPath);
+    const nextContent = currentSpecExists
+      ? mergeRequirementsIntoCurrentSpec(
           await fs.readFile(currentSpecPath, "utf8"),
-          blocks,
+          delta,
           path.relative(repoRoot, currentSpecPath).split(path.sep).join("/"),
         )
-      : buildNewCurrentSpec(capability, changeId, blocks);
+      : (() => {
+          if (delta.modified.length > 0) {
+            throw new Error(`${relDeltaPath}: cannot archive MODIFIED requirements without an existing current spec`);
+          }
+          return buildNewCurrentSpec(capability, changeId, delta.added);
+        })();
 
     updates.set(currentSpecPath, nextContent);
   }

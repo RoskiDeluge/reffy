@@ -17,6 +17,8 @@ Managed assistant instructions MUST describe the same canonical workspace and pl
 - **THEN** the instructions reference `.reffy/` as the canonical workspace
 - **AND** the instructions describe planning as an integrated Reffy subsystem rather than a disconnected external workflow
 
+## ADDED Requirements
+
 ### Requirement: Canonical Setup Entry Point
 The CLI SHALL present `reffy init` as the canonical repository setup command.
 

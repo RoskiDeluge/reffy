@@ -860,15 +860,40 @@ describe("cli plan archive", () => {
     expect(currentSpec).toContain("### Requirement: Demo");
   });
 
+  it("archives MODIFIED requirements into an existing current spec", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "modify-demo");
+    await createCurrentSpec(repo.repoRoot, "demo");
+    await overwriteFile(
+      path.join(repo.repoRoot, "reffyspec", "changes", "modify-demo", "specs", "demo", "spec.md"),
+      [
+        "## MODIFIED Requirements",
+        "### Requirement: Demo Requirement",
+        "The system SHALL expose the current spec for inspection with updated archive behavior.",
+        "",
+        "#### Scenario: Show the updated spec",
+        "- **WHEN** a user archives this change",
+        "- **THEN** the current requirement is replaced in the archived spec state",
+      ].join("\n"),
+    );
+
+    const archiveResult = await runCli(["plan", "archive", "modify-demo", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(archiveResult.code).toBe(0);
+
+    const currentSpec = await readFile(path.join(repo.repoRoot, "reffyspec", "specs", "demo", "spec.md"), "utf8");
+    expect(currentSpec).toContain("updated archive behavior");
+    expect(currentSpec).not.toContain("The system SHALL expose the current spec for inspection.");
+  });
+
   it("fails safely on unsupported delta section types", async () => {
     const repo = await createTempRepo();
     await createPlanningChange(repo.repoRoot, "add-unsupported-archive");
     await overwriteFile(
       path.join(repo.repoRoot, "reffyspec", "changes", "add-unsupported-archive", "specs", "demo", "spec.md"),
       [
-        "## MODIFIED Requirements",
+        "## REMOVED Requirements",
         "### Requirement: Demo",
-        "The system SHALL archive modified requirements later.",
+        "The system SHALL archive removed requirements later.",
         "",
         "#### Scenario: Unsupported archive pattern",
         "- **WHEN** a user archives this change",
