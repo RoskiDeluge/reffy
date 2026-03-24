@@ -1,4 +1,4 @@
-```bash
+x```bash
 Usage: reffy ls [OPTIONS]
 OPTIONS:
     -c 
