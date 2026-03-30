@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { DEFAULT_PLANNING_DIRNAME } from "./planning-paths.js";
+import { DEFAULT_PLANNING_RELATIVE_DIR, resolveCanonicalPlanningPath } from "./planning-paths.js";
 import type { Artifact } from "./types.js";
 
 interface StoreLike {
@@ -333,26 +333,26 @@ export async function createPlanScaffold(store: StoreLike, input: CreatePlanInpu
   const title = input.title?.trim() || deriveTitle(changeId);
   const capabilityId = normalizeKebab(deriveCapabilityId(changeId));
   const artifactInputs = await loadArtifactPlanningInputs(store, selected);
-  const changeDir = path.join(store.repoRoot, DEFAULT_PLANNING_DIRNAME, "changes", changeId);
+  const changeDir = resolveCanonicalPlanningPath(store.repoRoot, "changes", changeId);
   const specDir = path.join(changeDir, "specs", capabilityId);
   await ensureEmptyChangeDir(changeDir, input.overwrite ?? false);
   await fs.mkdir(specDir, { recursive: true });
 
   const files = [
     {
-      rel: path.join(DEFAULT_PLANNING_DIRNAME, "changes", changeId, "proposal.md"),
+      rel: path.join(DEFAULT_PLANNING_RELATIVE_DIR, "changes", changeId, "proposal.md"),
       content: buildProposal(title, capabilityId, artifactInputs),
     },
     {
-      rel: path.join(DEFAULT_PLANNING_DIRNAME, "changes", changeId, "tasks.md"),
+      rel: path.join(DEFAULT_PLANNING_RELATIVE_DIR, "changes", changeId, "tasks.md"),
       content: buildTasks(artifactInputs),
     },
     {
-      rel: path.join(DEFAULT_PLANNING_DIRNAME, "changes", changeId, "design.md"),
+      rel: path.join(DEFAULT_PLANNING_RELATIVE_DIR, "changes", changeId, "design.md"),
       content: buildDesign(artifactInputs),
     },
     {
-      rel: path.join(DEFAULT_PLANNING_DIRNAME, "changes", changeId, "specs", capabilityId, "spec.md"),
+      rel: path.join(DEFAULT_PLANNING_RELATIVE_DIR, "changes", changeId, "specs", capabilityId, "spec.md"),
       content: buildSpecDelta(deriveRequirementTitle(title), artifactInputs),
     },
   ];

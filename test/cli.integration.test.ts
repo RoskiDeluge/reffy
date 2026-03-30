@@ -9,6 +9,7 @@ import { addArtifact, createTempRepo, createTempRepoWithRefsDir } from "./helper
 
 const execFileAsync = promisify(execFile);
 const CLI_PATH = path.join(process.cwd(), "dist/cli.js");
+const PLANNING_ROOT = path.join(".reffy", "reffyspec");
 
 async function runCli(args: string[], cwd = process.cwd()): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
@@ -59,7 +60,7 @@ async function createPlanningChange(
   changeId: string,
   options?: { invalidSpec?: boolean; checkedTasks?: boolean },
 ): Promise<void> {
-  const changeDir = path.join(repoRoot, "reffyspec", "changes", changeId);
+  const changeDir = path.join(repoRoot, PLANNING_ROOT, "changes", changeId);
   const specDir = path.join(changeDir, "specs", "demo");
   await mkdir(specDir, { recursive: true });
 
@@ -123,7 +124,7 @@ async function createCurrentSpec(
   specId: string,
   options?: { withDesign?: boolean },
 ): Promise<void> {
-  const specDir = path.join(repoRoot, "reffyspec", "specs", specId);
+  const specDir = path.join(repoRoot, PLANNING_ROOT, "specs", specId);
   await mkdir(specDir, { recursive: true });
   await writeFile(
     path.join(specDir, "spec.md"),
@@ -227,14 +228,14 @@ describe("cli init", () => {
 
     const rootAgents = await readFile(path.join(repo.repoRoot, "AGENTS.md"), "utf8");
     const reffyAgents = await readFile(path.join(repo.repoRoot, ".reffy", "AGENTS.md"), "utf8");
-    const reffyspecAgents = await readFile(path.join(repo.repoRoot, "reffyspec", "AGENTS.md"), "utf8");
+    const reffyspecAgents = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "AGENTS.md"), "utf8");
 
     expect(rootAgents).toContain("owns the runtime");
-    expect(rootAgents).toContain("`@/reffyspec/AGENTS.md`");
+    expect(rootAgents).toContain("`@/.reffy/reffyspec/AGENTS.md`");
     expect(reffyAgents).toContain("Reffy owns ideation artifacts, manifest metadata, and native planning scaffolds.");
     expect(reffyAgents).toContain("Reffy is the primary runtime authority for this project.");
-    expect(reffyAgents).toContain("ReffySpec files live under `reffyspec/` as the canonical planning layout.");
-    expect(reffyspecAgents).toContain("`reffyspec/specs/`");
+    expect(reffyAgents).toContain("ReffySpec files live under `.reffy/reffyspec/` as the canonical planning layout.");
+    expect(reffyspecAgents).toContain("`.reffy/reffyspec/specs/`");
   });
 
   it("prints a copy/paste agent instruction on first-run text output", async () => {
@@ -248,7 +249,7 @@ describe("cli init", () => {
     expect(result.stdout).toContain("Next step for your agent harness:");
     expect(result.stdout).toContain("Copy and paste this into your conversation with your chosen agent:");
     expect(result.stdout).toContain(
-      "Please read `AGENTS.md` and help me fill out the project context template in `reffyspec/project.md`",
+      "Please read `AGENTS.md` and help me fill out the project context template in `.reffy/reffyspec/project.md`",
     );
     expect(result.stdout).toContain("with details about my project, tech stack, architecture, and conventions.");
   });
@@ -259,7 +260,7 @@ describe("cli init", () => {
     const result = await runCli(["init", "--repo", repo.repoRoot, "--output", "json"]);
     expect(result.code).toBe(0);
 
-    const projectContext = await readFile(path.join(repo.repoRoot, "reffyspec", "project.md"), "utf8");
+    const projectContext = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "project.md"), "utf8");
     expect(projectContext).toContain("# Project Context");
     expect(projectContext).toContain("## Purpose");
     expect(projectContext).toContain("[Describe your project's purpose and goals]");
@@ -337,7 +338,7 @@ describe("cli repo-root discovery", () => {
       await realpath(path.join(repo.repoRoot, ".reffy", "AGENTS.md")),
     );
     expect(await realpath(initPayload.reffyspec_agents_path)).toBe(
-      await realpath(path.join(repo.repoRoot, "reffyspec", "AGENTS.md")),
+      await realpath(path.join(repo.repoRoot, PLANNING_ROOT, "AGENTS.md")),
     );
 
     const bootstrapPayload = JSON.parse(bootstrap.stdout) as { refs_dir: string; manifest_path: string };
@@ -378,7 +379,7 @@ describe("cli repo-root discovery", () => {
       await realpath(path.join(repo.repoRoot, ".reffy", "AGENTS.md")),
     );
     expect(await realpath(initPayload.reffyspec_agents_path)).toBe(
-      await realpath(path.join(repo.repoRoot, "reffyspec", "AGENTS.md")),
+      await realpath(path.join(repo.repoRoot, PLANNING_ROOT, "AGENTS.md")),
     );
 
     const bootstrapPayload = JSON.parse(bootstrap.stdout) as { refs_dir: string; manifest_path: string };
@@ -403,12 +404,12 @@ describe("cli legacy .references compatibility", () => {
     const refsAgents = await readFile(path.join(repo.repoRoot, ".reffy", "AGENTS.md"), "utf8");
 
     expect(rootAgents).toContain("`@/.reffy/AGENTS.md`");
-    expect(rootAgents).toContain("`@/reffyspec/AGENTS.md`");
+    expect(rootAgents).toContain("`@/.reffy/reffyspec/AGENTS.md`");
     expect(refsAgents).toContain("`.reffy/artifacts/`");
     await expect(access(path.join(repo.repoRoot, ".references"))).rejects.toThrow();
   });
 
-  it("migrates a legacy openspec planning layout to reffyspec during init", async () => {
+  it("migrates a legacy openspec planning layout to .reffy/reffyspec during init", async () => {
     const repo = await createTempRepo();
     await mkdir(path.join(repo.repoRoot, "openspec", "changes", "archive"), { recursive: true });
     await mkdir(path.join(repo.repoRoot, "openspec", "specs", "demo"), { recursive: true });
@@ -418,7 +419,7 @@ describe("cli legacy .references compatibility", () => {
     expect(init.code).toBe(0);
 
     await expect(access(path.join(repo.repoRoot, "openspec"))).rejects.toThrow();
-    expect(await readFile(path.join(repo.repoRoot, "reffyspec", "specs", "demo", "spec.md"), "utf8")).toContain("# demo Specification");
+    expect(await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"), "utf8")).toContain("# demo Specification");
   });
 
   it("exposes explicit migration as a command", async () => {
@@ -498,7 +499,7 @@ describe("cli diagram render", () => {
 
   it("derives diagram relationships from generated spec.md input", async () => {
     const repo = await createTempRepo();
-    const specDir = path.join(repo.repoRoot, "reffyspec", "specs", "demo");
+    const specDir = path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo");
     const specPath = path.join(specDir, "spec.md");
     await mkdir(specDir, { recursive: true });
     await writeFile(
@@ -517,7 +518,7 @@ describe("cli diagram render", () => {
       "utf8",
     );
 
-    const result = await runCli(["diagram", "render", "--repo", repo.repoRoot, "--input", "reffyspec/specs/demo/spec.md", "--format", "ascii"]);
+    const result = await runCli(["diagram", "render", "--repo", repo.repoRoot, "--input", ".reffy/reffyspec/specs/demo/spec.md", "--format", "ascii"]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Requirement: User Login");
     expect(result.stdout).toContain("Scenario: Valid credentials");
@@ -544,11 +545,11 @@ describe("cli diagram render", () => {
 
   it("fails for malformed spec.md input", async () => {
     const repo = await createTempRepo();
-    const specDir = path.join(repo.repoRoot, "reffyspec", "specs", "broken");
+    const specDir = path.join(repo.repoRoot, PLANNING_ROOT, "specs", "broken");
     await mkdir(specDir, { recursive: true });
     await writeFile(path.join(specDir, "spec.md"), "# broken spec\n\nNo requirement headings here.\n", "utf8");
 
-    const result = await runCli(["diagram", "render", "--repo", repo.repoRoot, "--input", "reffyspec/specs/broken/spec.md", "--format", "ascii"]);
+    const result = await runCli(["diagram", "render", "--repo", repo.repoRoot, "--input", ".reffy/reffyspec/specs/broken/spec.md", "--format", "ascii"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Unable to derive diagram from spec.md");
   });
@@ -590,23 +591,23 @@ describe("cli plan create", () => {
     expect(parsed.command).toBe("plan");
     expect(parsed.subcommand).toBe("create");
     expect(parsed.selected_artifacts).toEqual(["idea.md"]);
-    expect(parsed.written_files).toContain("reffyspec/changes/add-planning-subsystem/proposal.md");
+    expect(parsed.written_files).toContain(".reffy/reffyspec/changes/add-planning-subsystem/proposal.md");
 
-    const proposal = await readFile(path.join(repo.repoRoot, "reffyspec", "changes", "add-planning-subsystem", "proposal.md"), "utf8");
+    const proposal = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-planning-subsystem", "proposal.md"), "utf8");
     expect(proposal).toContain("## Reffy References");
     expect(proposal).toContain("idea.md");
     expect(proposal).toContain("Users need a more direct path from ideation to planning.");
     expect(proposal).toContain("Generate proposal scaffolds directly from artifacts");
 
-    const tasks = await readFile(path.join(repo.repoRoot, "reffyspec", "changes", "add-planning-subsystem", "tasks.md"), "utf8");
+    const tasks = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-planning-subsystem", "tasks.md"), "utf8");
     expect(tasks).toContain("Generate proposal scaffolds directly from artifacts");
     expect(tasks).toContain("Link generated outputs back to the manifest");
 
-    const design = await readFile(path.join(repo.repoRoot, "reffyspec", "changes", "add-planning-subsystem", "design.md"), "utf8");
+    const design = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-planning-subsystem", "design.md"), "utf8");
     expect(design).toContain("Should the generated design file include artifact-derived goals?");
 
     const spec = await readFile(
-      path.join(repo.repoRoot, "reffyspec", "changes", "add-planning-subsystem", "specs", "planning-subsystem", "spec.md"),
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-planning-subsystem", "specs", "planning-subsystem", "spec.md"),
       "utf8",
     );
     expect(spec).toContain("The system SHALL generate proposal scaffolds directly from artifacts.");
@@ -663,7 +664,7 @@ describe("cli plan create", () => {
     expect(result.code).toBe(0);
 
     const proposal = await readFile(
-      path.join(repo.repoRoot, "reffyspec", "changes", "update-planning-synthesis", "proposal.md"),
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "update-planning-synthesis", "proposal.md"),
       "utf8",
     );
     expect(proposal).toContain("Planning notes and generated changes drift apart too easily.");
@@ -673,7 +674,7 @@ describe("cli plan create", () => {
     expect(proposal).toContain("solution.md");
 
     const design = await readFile(
-      path.join(repo.repoRoot, "reffyspec", "changes", "update-planning-synthesis", "design.md"),
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "update-planning-synthesis", "design.md"),
       "utf8",
     );
     expect(design).toContain("### Problem Summary");
@@ -831,20 +832,20 @@ describe("cli plan archive", () => {
     };
     expect(parsed.status).toBe("ok");
     expect(parsed.subcommand).toBe("archive");
-    expect(parsed.archive_dir).toMatch(/reffyspec[\\/]changes[\\/]archive[\\/]\d{4}-\d{2}-\d{2}-add-archive-demo$/);
-    expect(parsed.updated_specs.some((entry) => entry.endsWith(path.join("reffyspec", "specs", "archive-demo", "spec.md")))).toBe(true);
+    expect(parsed.archive_dir).toMatch(/[\\/]?\.reffy[\\/]reffyspec[\\/]changes[\\/]archive[\\/]\d{4}-\d{2}-\d{2}-add-archive-demo$/);
+    expect(parsed.updated_specs.some((entry) => entry.endsWith(path.join(".reffy", "reffyspec", "specs", "archive-demo", "spec.md")))).toBe(true);
     expect(parsed.linked_artifacts).toBe(1);
 
-    await expect(access(path.join(repo.repoRoot, "reffyspec", "changes", "add-archive-demo"))).rejects.toThrow();
+    await expect(access(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-archive-demo"))).rejects.toThrow();
 
     const archivedProposalPath = path.join(parsed.archive_dir, "proposal.md");
-    const currentSpecPath = path.join(repo.repoRoot, "reffyspec", "specs", "archive-demo", "spec.md");
+    const currentSpecPath = path.join(repo.repoRoot, PLANNING_ROOT, "specs", "archive-demo", "spec.md");
     expect(await readFile(archivedProposalPath, "utf8")).toContain("# Change: Add Archive Demo");
     expect(await readFile(currentSpecPath, "utf8")).toContain("### Requirement: Archive Demo");
 
     const manifestText = await readFile(repo.manifestPath, "utf8");
-    expect(manifestText).toContain("reffyspec/changes/archive/");
-    expect(manifestText).not.toContain("reffyspec/changes/add-archive-demo/proposal.md");
+    expect(manifestText).toContain(".reffy/reffyspec/changes/archive/");
+    expect(manifestText).not.toContain(".reffy/reffyspec/changes/add-archive-demo/proposal.md");
   });
 
   it("appends supported archived requirements to an existing current spec", async () => {
@@ -855,7 +856,7 @@ describe("cli plan archive", () => {
     const archiveResult = await runCli(["plan", "archive", "add-demo", "--repo", repo.repoRoot, "--output", "json"]);
     expect(archiveResult.code).toBe(0);
 
-    const currentSpec = await readFile(path.join(repo.repoRoot, "reffyspec", "specs", "demo", "spec.md"), "utf8");
+    const currentSpec = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"), "utf8");
     expect(currentSpec).toContain("### Requirement: Demo Requirement");
     expect(currentSpec).toContain("### Requirement: Demo");
   });
@@ -865,7 +866,7 @@ describe("cli plan archive", () => {
     await createPlanningChange(repo.repoRoot, "modify-demo");
     await createCurrentSpec(repo.repoRoot, "demo");
     await overwriteFile(
-      path.join(repo.repoRoot, "reffyspec", "changes", "modify-demo", "specs", "demo", "spec.md"),
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "modify-demo", "specs", "demo", "spec.md"),
       [
         "## MODIFIED Requirements",
         "### Requirement: Demo Requirement",
@@ -880,7 +881,7 @@ describe("cli plan archive", () => {
     const archiveResult = await runCli(["plan", "archive", "modify-demo", "--repo", repo.repoRoot, "--output", "json"]);
     expect(archiveResult.code).toBe(0);
 
-    const currentSpec = await readFile(path.join(repo.repoRoot, "reffyspec", "specs", "demo", "spec.md"), "utf8");
+    const currentSpec = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"), "utf8");
     expect(currentSpec).toContain("updated archive behavior");
     expect(currentSpec).not.toContain("The system SHALL expose the current spec for inspection.");
   });
@@ -889,7 +890,7 @@ describe("cli plan archive", () => {
     const repo = await createTempRepo();
     await createPlanningChange(repo.repoRoot, "add-unsupported-archive");
     await overwriteFile(
-      path.join(repo.repoRoot, "reffyspec", "changes", "add-unsupported-archive", "specs", "demo", "spec.md"),
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-unsupported-archive", "specs", "demo", "spec.md"),
       [
         "## REMOVED Requirements",
         "### Requirement: Demo",
@@ -904,6 +905,6 @@ describe("cli plan archive", () => {
     const archiveResult = await runCli(["plan", "archive", "add-unsupported-archive", "--repo", repo.repoRoot, "--output", "json"]);
     expect(archiveResult.code).toBe(1);
     expect(archiveResult.stdout || archiveResult.stderr).toContain("unsupported delta sections");
-    await expect(access(path.join(repo.repoRoot, "reffyspec", "changes", "add-unsupported-archive"))).resolves.toBeUndefined();
+    await expect(access(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-unsupported-archive"))).resolves.toBeUndefined();
   });
 });

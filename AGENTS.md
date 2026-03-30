@@ -24,12 +24,12 @@ Keep this managed block so `reffy init` can refresh the instructions.
 
 These instructions are for AI assistants working in this project.
 
-Always open `@/reffyspec/AGENTS.md` when the request:
+Always open `@/.reffy/reffyspec/AGENTS.md` when the request:
 - Mentions planning or proposals (words like proposal, spec, change, plan)
 - Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
 - Needs the authoritative planning/spec workflow for this repo
 
-Use `@/reffyspec/AGENTS.md` to learn:
+Use `@/.reffy/reffyspec/AGENTS.md` to learn:
 - How to create and apply ReffySpec change proposals
 - ReffySpec format and conventions
 - Project structure and planning guidelines

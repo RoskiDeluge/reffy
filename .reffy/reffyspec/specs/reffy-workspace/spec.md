@@ -6,13 +6,13 @@ TBD - created by archiving change refactor-reffyspec-planning-subsystem. Update 
 ## Requirements
 
 ### Requirement: Canonical Reffy Workspace
-The system SHALL treat `.reffy/` as the canonical workspace for Reffy-managed artifacts, manifest data, and managed assistant instructions.
+The system SHALL treat `.reffy/` as the canonical workspace for Reffy-managed artifacts, manifest data, managed assistant instructions, and ReffySpec planning files.
 
 #### Scenario: New repository initialization
 - **WHEN** a user runs `reffy init` in a repository that has no existing Reffy workspace
 - **THEN** the CLI creates and documents `.reffy/` as the authoritative workspace root
 - **AND** manifest-backed artifact operations target `.reffy/` by default
-- **AND** the initial setup flow reindexes artifacts and creates the canonical `reffyspec/` planning files needed for project setup
+- **AND** the initial setup flow creates the canonical `.reffy/reffyspec/` planning files needed for project setup
 ### Requirement: Legacy Workspace Migration Guidance
 The system SHALL provide an explicit migration path for repositories that still use `.references/` as the workspace location.
 
@@ -26,7 +26,7 @@ Managed assistant instructions MUST describe the same canonical workspace and pl
 #### Scenario: Instructions are generated or updated
 - **WHEN** Reffy writes or refreshes managed instruction content during `reffy init`
 - **THEN** the instructions reference `.reffy/` as the canonical workspace
-- **AND** the instructions describe planning as an integrated Reffy subsystem rather than a disconnected external workflow
+- **AND** the instructions describe ReffySpec as living under `.reffy/reffyspec/`
 ### Requirement: Canonical Setup Entry Point
 The CLI SHALL present `reffy init` as the canonical repository setup command.
 

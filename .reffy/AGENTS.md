@@ -38,7 +38,7 @@ You can skip Reffy when the request is:
 - ReffySpec is the planning subsystem inside Reffy.
 - The vendored fork at `/.vendor/ReffySpec` is reference-only for v1; first-party behavior lives in this repo.
 - Reffy is the primary runtime authority for this project.
-- ReffySpec files live under `reffyspec/` as the canonical planning layout.
+- ReffySpec files live under `.reffy/reffyspec/` as the canonical planning layout.
 - Do not duplicate full proposal/spec content in Reffy artifacts; generate and link planning outputs from them.
 
 ## ReffySpec Citation Rules
@@ -55,7 +55,7 @@ When a ReffySpec proposal is informed by Reffy artifacts:
 
 ### Reusable Proposal Snippet
 
-Use this in `reffyspec/changes/<change-id>/proposal.md`:
+Use this in `.reffy/reffyspec/changes/<change-id>/proposal.md`:
 
 ```md
 ## Reffy References

@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { DEFAULT_PLANNING_DIRNAME } from "./planning-paths.js";
+import { resolvePlanningPath } from "./planning-paths.js";
 import { validatePlanningChange } from "./plan-runtime.js";
 import { ReferencesStore } from "./storage.js";
 
@@ -234,7 +234,7 @@ async function buildSpecUpdates(repoRoot: string, changeId: string, changeDir: s
     const deltaContent = await fs.readFile(deltaPath, "utf8");
     const relDeltaPath = path.relative(repoRoot, deltaPath).split(path.sep).join("/");
     const delta = parseArchiveableRequirements(deltaContent, relDeltaPath);
-    const currentSpecPath = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "specs", capability, "spec.md");
+    const currentSpecPath = resolvePlanningPath(repoRoot, "specs", capability, "spec.md");
 
     const currentSpecExists = await pathExists(currentSpecPath);
     const nextContent = currentSpecExists
@@ -262,12 +262,12 @@ export async function archivePlanningChange(repoRoot: string, changeId: string):
     throw new Error(`cannot archive invalid change "${changeId}": ${validation.errors.join("; ")}`);
   }
 
-  const changeDir = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "changes", changeId);
+  const changeDir = resolvePlanningPath(repoRoot, "changes", changeId);
   if (!(await pathExists(changeDir))) {
     throw new Error(`change not found: ${changeId}`);
   }
 
-  const archiveDir = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "changes", "archive", `${archiveDatePrefix()}-${changeId}`);
+  const archiveDir = resolvePlanningPath(repoRoot, "changes", "archive", `${archiveDatePrefix()}-${changeId}`);
   if (await pathExists(archiveDir)) {
     throw new Error(`archive destination already exists: ${path.relative(repoRoot, archiveDir).split(path.sep).join("/")}`);
   }

@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { DEFAULT_PLANNING_DIRNAME } from "./planning-paths.js";
+import { resolvePlanningPath } from "./planning-paths.js";
 
 const CHANGE_HEADING_PREFIX = "# Change:";
 const REQUIREMENT_SECTION_PATTERN = /^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements\s*$/;
@@ -65,7 +65,7 @@ async function listDirectories(dir: string): Promise<string[]> {
 }
 
 function getChangePaths(repoRoot: string, changeId: string): ChangePaths {
-  const changeDir = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "changes", changeId);
+  const changeDir = resolvePlanningPath(repoRoot, "changes", changeId);
   return {
     id: changeId,
     changeDir,
@@ -189,7 +189,7 @@ async function buildChangeSummary(repoRoot: string, changeId: string): Promise<P
 }
 
 export async function listPlanningChanges(repoRoot: string): Promise<PlanChangeSummary[]> {
-  const changesRoot = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "changes");
+  const changesRoot = resolvePlanningPath(repoRoot, "changes");
   const changeIds = (await listDirectories(changesRoot)).filter((id) => id !== "archive");
   const summaries: PlanChangeSummary[] = [];
 

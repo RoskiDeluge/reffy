@@ -7,9 +7,9 @@ import { renderDiagram } from "./diagram.js";
 import { runDoctor } from "./doctor.js";
 import { archivePlanningChange } from "./plan-archive.js";
 import { createPlanScaffold } from "./plan.js";
-import { DEFAULT_PLANNING_DIRNAME } from "./planning-paths.js";
+import { DEFAULT_PLANNING_RELATIVE_DIR, looksLikePlanningDir, resolveCanonicalPlanningPath } from "./planning-paths.js";
 import { listPlanningChanges, showPlanningChange, validatePlanningChange } from "./plan-runtime.js";
-import { DEFAULT_REFS_DIRNAME, looksLikeRefsDir } from "./refs-paths.js";
+import { DEFAULT_REFS_DIRNAME, detectWorkspaceState, looksLikeRefsDir } from "./refs-paths.js";
 import { prepareCanonicalPlanningLayout } from "./planning-workspace.js";
 import { ReferencesStore } from "./storage.js";
 import { listSpecs, showSpec } from "./spec-runtime.js";
@@ -29,7 +29,7 @@ const REFFY_ASCII = [
 ].join("\n");
 
 const BOOTSTRAP_AGENT_INSTRUCTION = [
-  'Please read `AGENTS.md` and help me fill out the project context template in `reffyspec/project.md`',
+  `Please read \`AGENTS.md\` and help me fill out the project context template in \`${DEFAULT_PLANNING_RELATIVE_DIR}/project.md\``,
   "with details about my project, tech stack, architecture, and conventions.",
 ].join(" ");
 
@@ -60,12 +60,12 @@ function buildReffySpecBlock(): string {
 
 These instructions are for AI assistants working in this project.
 
-Always open \`@/${DEFAULT_PLANNING_DIRNAME}/AGENTS.md\` when the request:
+Always open \`@/${DEFAULT_PLANNING_RELATIVE_DIR}/AGENTS.md\` when the request:
 - Mentions planning or proposals (words like proposal, spec, change, plan)
 - Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
 - Needs the authoritative planning/spec workflow for this repo
 
-Use \`@/${DEFAULT_PLANNING_DIRNAME}/AGENTS.md\` to learn:
+Use \`@/${DEFAULT_PLANNING_RELATIVE_DIR}/AGENTS.md\` to learn:
 - How to create and apply ReffySpec change proposals
 - ReffySpec format and conventions
 - Project structure and planning guidelines
@@ -116,7 +116,7 @@ You can skip Reffy when the request is:
 - ReffySpec is the planning subsystem inside Reffy.
 - The vendored fork at \`/.vendor/ReffySpec\` is reference-only for v1; first-party behavior lives in this repo.
 - Reffy is the primary runtime authority for this project.
-- ReffySpec files live under \`${DEFAULT_PLANNING_DIRNAME}/\` as the canonical planning layout.
+- ReffySpec files live under \`${DEFAULT_PLANNING_RELATIVE_DIR}/\` as the canonical planning layout.
 - Do not duplicate full proposal/spec content in Reffy artifacts; generate and link planning outputs from them.
 
 ## ReffySpec Citation Rules
@@ -133,7 +133,7 @@ When a ReffySpec proposal is informed by Reffy artifacts:
 
 ### Reusable Proposal Snippet
 
-Use this in \`${DEFAULT_PLANNING_DIRNAME}/changes/<change-id>/proposal.md\`:
+Use this in \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/<change-id>/proposal.md\`:
 
 \`\`\`md
 ## Reffy References
@@ -163,17 +163,17 @@ These instructions are for AI assistants working in this project.
 
 ## TL;DR Checklist
 
-- Read the relevant current specs in \`${DEFAULT_PLANNING_DIRNAME}/specs/\` before changing behavior.
-- Review active changes in \`${DEFAULT_PLANNING_DIRNAME}/changes/\` before drafting or implementing new work.
+- Read the relevant current specs in \`${DEFAULT_PLANNING_RELATIVE_DIR}/specs/\` before changing behavior.
+- Review active changes in \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/\` before drafting or implementing new work.
 - Use ReffySpec change proposals for new capabilities, breaking changes, or architecture shifts.
-- Keep current truth in \`${DEFAULT_PLANNING_DIRNAME}/specs/\` and proposed deltas in \`${DEFAULT_PLANNING_DIRNAME}/changes/\`.
+- Keep current truth in \`${DEFAULT_PLANNING_RELATIVE_DIR}/specs/\` and proposed deltas in \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/\`.
 
 ## ReffySpec Workflow
 
-1. Read \`${DEFAULT_PLANNING_DIRNAME}/project.md\` for project conventions.
-2. Inspect current specs in \`${DEFAULT_PLANNING_DIRNAME}/specs/\`.
-3. Inspect active changes in \`${DEFAULT_PLANNING_DIRNAME}/changes/\`.
-4. Draft or update proposal/design/tasks/spec files under \`${DEFAULT_PLANNING_DIRNAME}/changes/<change-id>/\`.
+1. Read \`${DEFAULT_PLANNING_RELATIVE_DIR}/project.md\` for project conventions.
+2. Inspect current specs in \`${DEFAULT_PLANNING_RELATIVE_DIR}/specs/\`.
+3. Inspect active changes in \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/\`.
+4. Draft or update proposal/design/tasks/spec files under \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/<change-id>/\`.
 5. Use native Reffy commands for routine planning workflow:
    - \`reffy plan create\`
    - \`reffy plan validate\`
@@ -185,9 +185,9 @@ These instructions are for AI assistants working in this project.
 
 ## Directory Model
 
-- \`${DEFAULT_PLANNING_DIRNAME}/changes/\` contains active proposed changes.
-- \`${DEFAULT_PLANNING_DIRNAME}/changes/archive/\` contains historical archived changes.
-- \`${DEFAULT_PLANNING_DIRNAME}/specs/\` contains current truth for each capability.
+- \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/\` contains active proposed changes.
+- \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/archive/\` contains historical archived changes.
+- \`${DEFAULT_PLANNING_RELATIVE_DIR}/specs/\` contains current truth for each capability.
 
 ## Proposal Rules
 
@@ -258,7 +258,7 @@ async function initAgents(
   const refsDirName = DEFAULT_REFS_DIRNAME;
   const agentsPath = path.join(repoRoot, "AGENTS.md");
   const reffyAgentsPath = path.join(repoRoot, refsDirName, "AGENTS.md");
-  const reffyspecAgentsPath = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "AGENTS.md");
+  const reffyspecAgentsPath = resolveCanonicalPlanningPath(repoRoot, "AGENTS.md");
   let content = "";
   try {
     content = await fs.readFile(agentsPath, "utf8");
@@ -293,6 +293,12 @@ function discoverRepoRoot(startDir: string): string {
   while (true) {
     if (looksLikeRefsDir(current)) {
       return path.dirname(current);
+    }
+
+    if (looksLikePlanningDir(current)) {
+      return path.basename(path.dirname(current)) === DEFAULT_REFS_DIRNAME
+        ? path.dirname(path.dirname(current))
+        : path.dirname(current);
     }
 
     if (isDirectory(path.join(current, DEFAULT_REFS_DIRNAME)) || isDirectory(path.join(current, ".references"))) {
@@ -538,7 +544,7 @@ function planUsage(): string {
     "  reffy plan archive <change-id> [--repo PATH] [--output text|json]",
     "",
     "Options:",
-    `  --change-id ID     ${DEFAULT_PLANNING_DIRNAME} change id to create`,
+    `  --change-id ID     ${DEFAULT_PLANNING_RELATIVE_DIR} change id to create`,
     "  --title TEXT       Human-readable proposal title",
     "  --artifacts LIST   Comma-separated artifact filenames or ids to link",
     "  --all              Use all indexed artifacts as planning inputs",
@@ -1057,7 +1063,6 @@ async function main(): Promise<number> {
 
   if (command === "reindex") {
     const repoRoot = parseRepoArg(rest);
-    await prepareCanonicalPlanningLayout(repoRoot);
     const store = new ReferencesStore(repoRoot);
     const reindex = await store.reindexArtifacts();
     const payload = { status: "ok", command: "reindex", ...reindex };
@@ -1073,7 +1078,9 @@ async function main(): Promise<number> {
 
   if (command === "doctor") {
     const repoRoot = parseRepoArg(rest);
-    await prepareCanonicalPlanningLayout(repoRoot);
+    if (detectWorkspaceState(repoRoot).mode !== "legacy") {
+      await prepareCanonicalPlanningLayout(repoRoot);
+    }
     const report = await runDoctor(repoRoot);
     const status = report.summary.required_failed > 0 ? "error" : "ok";
     const payload = { status, command: "doctor", ...report };
@@ -1102,7 +1109,6 @@ async function main(): Promise<number> {
 
   if (command === "validate") {
     const repoRoot = parseRepoArg(rest);
-    await prepareCanonicalPlanningLayout(repoRoot);
     const store = new ReferencesStore(repoRoot);
     const result = await store.validateManifest();
     const payload = { status: result.ok ? "ok" : "error", command: "validate", ...result };
@@ -1129,7 +1135,6 @@ async function main(): Promise<number> {
 
   if (command === "summarize") {
     const repoRoot = parseRepoArg(rest);
-    await prepareCanonicalPlanningLayout(repoRoot);
     const store = new ReferencesStore(repoRoot);
     const validation = await store.validateManifest();
     if (!validation.ok) {

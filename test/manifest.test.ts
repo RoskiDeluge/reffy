@@ -151,7 +151,7 @@ describe("manifest module", () => {
               ...artifact,
               status: "planned",
               related_changes: ["add-traceability"],
-              derived_outputs: ["reffyspec/changes/add-traceability/proposal.md"],
+              derived_outputs: [".reffy/reffyspec/changes/add-traceability/proposal.md"],
             },
           ],
         },

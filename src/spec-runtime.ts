@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { DEFAULT_PLANNING_DIRNAME } from "./planning-paths.js";
+import { resolvePlanningPath } from "./planning-paths.js";
 
 const SPEC_HEADING_SUFFIX = " Specification";
 const PURPOSE_HEADING = "## Purpose";
@@ -66,7 +66,7 @@ function extractPurpose(content: string): string | undefined {
 }
 
 async function buildSpecSummary(repoRoot: string, specId: string): Promise<SpecSummary> {
-  const specDir = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "specs", specId);
+  const specDir = resolvePlanningPath(repoRoot, "specs", specId);
   const specPath = path.join(specDir, "spec.md");
   const designPath = path.join(specDir, "design.md");
   const content = await fs.readFile(specPath, "utf8");
@@ -82,7 +82,7 @@ async function buildSpecSummary(repoRoot: string, specId: string): Promise<SpecS
 }
 
 export async function listSpecs(repoRoot: string): Promise<SpecSummary[]> {
-  const specsRoot = path.join(repoRoot, DEFAULT_PLANNING_DIRNAME, "specs");
+  const specsRoot = resolvePlanningPath(repoRoot, "specs");
   const specIds = await listDirectories(specsRoot);
   const summaries: SpecSummary[] = [];
 

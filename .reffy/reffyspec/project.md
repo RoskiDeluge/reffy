@@ -2,7 +2,7 @@
 
 ## Purpose
 `reffy` is a CLI-first, framework-agnostic references workflow for any repo.
-The project provides a `reffy` command that initializes managed assistant instructions in `AGENTS.md`, manages a canonical `.reffy/` workspace, reindexes artifacts into a manifest, validates that manifest against a v1 contract, and owns the planning/runtime workflow through the canonical `reffyspec/` layout.
+The project provides a `reffy` command that initializes managed assistant instructions in `AGENTS.md`, manages a canonical `.reffy/` workspace, reindexes artifacts into a manifest, validates that manifest against a v1 contract, and owns the planning/runtime workflow through the canonical `.reffy/reffyspec/` layout.
 Primary goals are idempotent setup, predictable local file-based behavior, and straightforward integration into existing repositories.
 
 ## Tech Stack
@@ -41,8 +41,8 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
   - `.reffy/artifacts/` stores artifact files
   - `.reffy/manifest.json` stores metadata/index
 - Planning/spec model:
-  - `reffyspec/changes/` stores active changes and archived change history
-  - `reffyspec/specs/` stores current truth per capability
+  - `.reffy/reffyspec/changes/` stores active changes and archived change history
+  - `.reffy/reffyspec/specs/` stores current truth per capability
   - Reffy is the runtime authority and ReffySpec is the canonical planning surface
 - `.vendor/ReffySpec/` is a vendored reference fork only; first-party runtime behavior belongs in the Reffy source tree
 - Commands should be idempotent where possible (`init`, `bootstrap`, `reindex`)
@@ -66,7 +66,7 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 - `AGENTS.md` contains a managed Reffy block (`<!-- REFFY:START --> ... <!-- REFFY:END -->`) that must be inserted/updated idempotently.
 - Runtime boundary:
   - Reffy is the primary runtime authority for planning behavior in this repo
-  - `reffyspec/` is the canonical layout for active changes, archived changes, and current specs
+  - `.reffy/reffyspec/` is the canonical layout for active changes, archived changes, and current specs
 - Manifest contract expectations:
   - Top-level fields: `version`, `created_at`, `updated_at`, `artifacts`
   - Each artifact requires metadata (`id`, `name`, `filename`, `kind`, `mime_type`, `size_bytes`, `tags`, timestamps)

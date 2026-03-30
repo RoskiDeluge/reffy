@@ -16,7 +16,7 @@ Reffy v1 was bootstrapped while studying the OpenSpec project. That reference in
 - change/spec directory conventions during the bootstrap phases
 - command and lifecycle semantics used as parity targets during runtime replacement
 
-Reffy has since evolved into its own native runtime and canonical `reffyspec/` layout, but the project retains this notice to acknowledge the upstream reference lineage.
+Reffy has since evolved into its own native runtime and canonical `.reffy/reffyspec/` layout, but the project retains this notice to acknowledge the upstream reference lineage.
 
 ## License Note
 

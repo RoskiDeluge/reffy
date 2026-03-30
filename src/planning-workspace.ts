@@ -2,8 +2,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
+  COMPAT_PLANNING_DIRNAME,
   DEFAULT_PLANNING_DIRNAME,
-  LEGACY_PLANNING_DIRNAME,
   detectPlanningState,
   resolveCanonicalPlanningDir,
   type PlanningState,
@@ -79,12 +79,34 @@ export async function prepareCanonicalPlanningLayout(repoRoot: string): Promise<
   const current = detectPlanningState(repoRoot);
 
   if (current.mode === "legacy") {
+    await fs.mkdir(path.dirname(current.canonicalDir), { recursive: true });
     await fs.rename(current.legacyDir, current.canonicalDir);
     return {
       state: detectPlanningState(repoRoot),
       migrated: true,
       created: false,
-      message: `Migrated ${LEGACY_PLANNING_DIRNAME}/ to ${DEFAULT_PLANNING_DIRNAME}/`,
+      message: `Migrated reffyspec/ to ${DEFAULT_PLANNING_DIRNAME}/ within .reffy/`,
+    };
+  }
+
+  if (current.mode === "compat") {
+    await fs.mkdir(path.dirname(current.canonicalDir), { recursive: true });
+    await fs.rename(current.compatDir, current.canonicalDir);
+    return {
+      state: detectPlanningState(repoRoot),
+      migrated: true,
+      created: false,
+      message: `Migrated ${COMPAT_PLANNING_DIRNAME}/ to .reffy/${DEFAULT_PLANNING_DIRNAME}/`,
+    };
+  }
+
+  if (current.mode === "dual") {
+    await ensureCanonicalPlanningStructure(repoRoot);
+    return {
+      state: detectPlanningState(repoRoot),
+      migrated: false,
+      created: false,
+      message: `Using canonical .reffy/${DEFAULT_PLANNING_DIRNAME}/; legacy planning directories remain for manual cleanup`,
     };
   }
 

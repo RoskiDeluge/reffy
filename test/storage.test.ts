@@ -101,13 +101,13 @@ describe("ReferencesStore", () => {
 
     const result = await store.linkPlanningOutputs(
       [created.filename],
-      ["reffyspec/changes/add-demo/proposal.md", "reffyspec/changes/add-demo/tasks.md"],
+      [".reffy/reffyspec/changes/add-demo/proposal.md", ".reffy/reffyspec/changes/add-demo/tasks.md"],
       "add-demo",
     );
 
     expect(result.linked).toBe(1);
     const updated = await store.getArtifact(created.id);
     expect(updated?.related_changes).toContain("add-demo");
-    expect(updated?.derived_outputs).toContain("reffyspec/changes/add-demo/proposal.md");
+    expect(updated?.derived_outputs).toContain(".reffy/reffyspec/changes/add-demo/proposal.md");
   });
 });
