@@ -1,7 +1,7 @@
 # Project Context
 
 ## Purpose
-`reffy` is a CLI-first, framework-agnostic references workflow for any repo.
+`reffy` is a planning system for AI assisted development.
 The project provides a `reffy` command that initializes managed assistant instructions in `AGENTS.md`, manages a canonical `.reffy/` workspace, reindexes artifacts into a manifest, validates that manifest against a v1 contract, and owns the planning/runtime workflow through the canonical `.reffy/reffyspec/` layout.
 Primary goals are idempotent setup, predictable local file-based behavior, and straightforward integration into existing repositories.
 
@@ -62,7 +62,7 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 - Update `README.md` when CLI behavior, commands, or contract details change.
 
 ## Domain Context
-- This project is a local references layer for AI-assisted development workflows.
+- This project is a planning system for AI assisted development.
 - `AGENTS.md` contains a managed Reffy block (`<!-- REFFY:START --> ... <!-- REFFY:END -->`) that must be inserted/updated idempotently.
 - Runtime boundary:
   - Reffy is the primary runtime authority for planning behavior in this repo

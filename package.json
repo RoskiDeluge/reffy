@@ -1,7 +1,7 @@
 {
   "name": "reffy-cli",
-  "version": "1.2.0",
-  "description": "CLI-first, framework-agnostic references workflow for any repo (TypeScript)",
+  "version": "1.2.1",
+  "description": "Planning system for AI assisted development.",
   "keywords": [
     "reffy",
     "reffyspec",
