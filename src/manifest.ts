@@ -17,6 +17,9 @@ const KIND_EXTENSIONS: Record<string, string[]> = {
   file: [],
 };
 
+const PROJECT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const FALLBACK_WORKSPACE_ID = "reffy-workspace";
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -24,6 +27,26 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function isIsoDate(value: unknown): value is string {
   if (typeof value !== "string") return false;
   return !Number.isNaN(Date.parse(value));
+}
+
+function isProjectId(value: unknown): value is string {
+  return typeof value === "string" && PROJECT_ID_PATTERN.test(value);
+}
+
+function isWorkspaceName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !/[\\/\r\n\t]/.test(value)
+  );
+}
+
+function slugifyIdentity(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function relativePathSafe(filename: string): boolean {
@@ -34,6 +57,54 @@ function relativePathSafe(filename: string): boolean {
 
 export function allowedKindExtensions(): Record<string, string[]> {
   return Object.fromEntries(Object.entries(KIND_EXTENSIONS).map(([kind, extensions]) => [kind, [...extensions]]));
+}
+
+export function deriveManifestIdentity(repoRoot: string): Required<Pick<Manifest, "project_id" | "workspace_name">> {
+  const candidate = slugifyIdentity(path.basename(path.resolve(repoRoot)));
+  const identity = candidate || FALLBACK_WORKSPACE_ID;
+  return {
+    project_id: identity,
+    workspace_name: identity,
+  };
+}
+
+export function createManifest(repoRoot: string, now = new Date().toISOString()): Manifest {
+  return {
+    version: MANIFEST_VERSION,
+    created_at: now,
+    updated_at: now,
+    ...deriveManifestIdentity(repoRoot),
+    artifacts: [],
+  };
+}
+
+export function normalizeManifest(raw: unknown, repoRoot: string): Manifest {
+  const now = new Date().toISOString();
+  const defaults = deriveManifestIdentity(repoRoot);
+
+  if (Array.isArray(raw)) {
+    return {
+      version: 0,
+      created_at: now,
+      updated_at: now,
+      ...defaults,
+      artifacts: raw as Artifact[],
+    };
+  }
+
+  if (!isObject(raw)) {
+    return createManifest(repoRoot, now);
+  }
+
+  const artifacts = Array.isArray(raw.artifacts) ? (raw.artifacts as Artifact[]) : [];
+  return {
+    version: typeof raw.version === "number" ? raw.version : MANIFEST_VERSION,
+    created_at: typeof raw.created_at === "string" ? raw.created_at : now,
+    updated_at: typeof raw.updated_at === "string" ? raw.updated_at : now,
+    project_id: typeof raw.project_id === "string" ? raw.project_id : defaults.project_id,
+    workspace_name: typeof raw.workspace_name === "string" ? raw.workspace_name : defaults.workspace_name,
+    artifacts,
+  };
 }
 
 export function inferArtifactType(filePath: string): { kind: string; mime_type: string } {
@@ -135,6 +206,12 @@ export async function validateManifest(manifestPath: string, artifactsDir: strin
   }
   if (!isIsoDate(raw.updated_at)) {
     errors.push("updated_at must be an ISO timestamp");
+  }
+  if (raw.project_id !== undefined && !isProjectId(raw.project_id)) {
+    errors.push("project_id must be a non-empty kebab-case string");
+  }
+  if (raw.workspace_name !== undefined && !isWorkspaceName(raw.workspace_name)) {
+    errors.push("workspace_name must be a non-empty string without path separators or control characters");
   }
   if (!Array.isArray(raw.artifacts)) {
     errors.push("artifacts must be an array");

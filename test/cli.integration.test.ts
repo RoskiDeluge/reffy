@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { deriveManifestIdentity } from "../src/manifest.js";
 import { addArtifact, createTempRepo, createTempRepoWithRefsDir } from "./helpers.js";
 
 const execFileAsync = promisify(execFile);
@@ -266,6 +267,67 @@ describe("cli init", () => {
     expect(projectContext).toContain("[Describe your project's purpose and goals]");
     expect(projectContext).toContain("## Tech Stack");
     expect(projectContext).toContain("## External Dependencies");
+  });
+
+  it("writes manifest identity fields for initialized workspaces", async () => {
+    const repo = await createTempRepo();
+
+    const result = await runCli(["init", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(0);
+
+    const manifest = JSON.parse(await readFile(repo.manifestPath, "utf8")) as {
+      version: number;
+      created_at: string;
+      updated_at: string;
+      project_id?: string;
+      workspace_name?: string;
+      artifacts: unknown[];
+    };
+
+    expect(manifest.version).toBe(1);
+    expect(typeof manifest.created_at).toBe("string");
+    expect(typeof manifest.updated_at).toBe("string");
+    expect(manifest.project_id).toBe(deriveManifestIdentity(repo.repoRoot).project_id);
+    expect(manifest.workspace_name).toBe(deriveManifestIdentity(repo.repoRoot).workspace_name);
+    expect(Array.isArray(manifest.artifacts)).toBe(true);
+  });
+
+  it("migrates existing manifests that are missing identity fields during init", async () => {
+    const repo = await createTempRepo();
+    const original = JSON.parse(await readFile(repo.manifestPath, "utf8")) as {
+      version: number;
+      created_at: string;
+      updated_at: string;
+      artifacts: unknown[];
+    };
+    await writeFile(
+      repo.manifestPath,
+      JSON.stringify(
+        {
+          version: original.version,
+          created_at: original.created_at,
+          updated_at: original.updated_at,
+          artifacts: original.artifacts,
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const result = await runCli(["init", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(0);
+
+    const migrated = JSON.parse(await readFile(repo.manifestPath, "utf8")) as {
+      created_at: string;
+      updated_at: string;
+      project_id?: string;
+      workspace_name?: string;
+    };
+    expect(migrated.created_at).toBe(original.created_at);
+    expect(Date.parse(migrated.updated_at)).toBeGreaterThanOrEqual(Date.parse(original.updated_at));
+    expect(migrated.project_id).toBe(deriveManifestIdentity(repo.repoRoot).project_id);
+    expect(migrated.workspace_name).toBe(deriveManifestIdentity(repo.repoRoot).workspace_name);
   });
 
   it("does not repeat the agent instruction on idempotent reruns", async () => {

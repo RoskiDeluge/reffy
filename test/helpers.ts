@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { deriveManifestIdentity } from "../src/manifest.js";
 import type { Artifact } from "../src/types.js";
 
 function nowIso(): string {
@@ -31,6 +32,7 @@ export async function createTempRepoWithRefsDir(
         version: 1,
         created_at: nowIso(),
         updated_at: nowIso(),
+        ...deriveManifestIdentity(repoRoot),
         artifacts: [],
       },
       null,
@@ -67,6 +69,8 @@ export async function addArtifact(
     version: number;
     created_at: string;
     updated_at: string;
+    project_id?: string;
+    workspace_name?: string;
     artifacts: Artifact[];
   };
   manifest.artifacts.push(artifact);

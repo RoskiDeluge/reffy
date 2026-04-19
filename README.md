@@ -59,6 +59,23 @@ reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format ascii
 reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format svg --output .reffy/artifacts/auth-spec.svg
 ```
 
+## Manifest Contract
+
+Reffy keeps workspace metadata in `.reffy/manifest.json`. New managed manifests include both core timestamps and workspace identity:
+
+```json
+{
+  "version": 1,
+  "created_at": "2026-04-18T00:00:00.000Z",
+  "updated_at": "2026-04-18T00:00:00.000Z",
+  "project_id": "my-project",
+  "workspace_name": "my-project",
+  "artifacts": []
+}
+```
+
+Older v1 manifests without `project_id` and `workspace_name` still validate. Running `reffy init` migrates managed manifests by adding those fields with deterministic defaults derived from the repository name.
+
 ## Using Reffy With ReffySpec
 
 A practical pattern is:

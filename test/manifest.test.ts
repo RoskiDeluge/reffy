@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { allowedKindExtensions, inferArtifactType, isManifest, validateManifest } from "../src/manifest.js";
+import { allowedKindExtensions, deriveManifestIdentity, inferArtifactType, isManifest, validateManifest } from "../src/manifest.js";
 import { addArtifact, createTempRepo } from "./helpers.js";
 
 describe("manifest module", () => {
@@ -31,6 +31,28 @@ describe("manifest module", () => {
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
     expect(result.artifact_count).toBe(1);
+  });
+
+  it("accepts older v1 manifests that do not yet include identity fields", async () => {
+    const repo = await createTempRepo();
+    const now = new Date().toISOString();
+    await writeFile(
+      repo.manifestPath,
+      JSON.stringify(
+        {
+          version: 1,
+          created_at: now,
+          updated_at: now,
+          artifacts: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
+    expect(result.ok).toBe(true);
   });
 
   it("fails when manifest cannot be parsed", async () => {
@@ -119,6 +141,7 @@ describe("manifest module", () => {
           version: 1,
           created_at: artifact.created_at,
           updated_at: artifact.updated_at,
+          ...deriveManifestIdentity(repo.repoRoot),
           artifacts: [{ ...artifact, size_bytes: artifact.size_bytes + 10 }],
         },
         null,
@@ -146,6 +169,7 @@ describe("manifest module", () => {
           version: 1,
           created_at: artifact.created_at,
           updated_at: artifact.updated_at,
+          ...deriveManifestIdentity(repo.repoRoot),
           artifacts: [
             {
               ...artifact,
@@ -163,6 +187,34 @@ describe("manifest module", () => {
 
     const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
     expect(result.ok).toBe(true);
+  });
+
+  it("fails when present identity fields are malformed", async () => {
+    const repo = await createTempRepo();
+    const now = new Date().toISOString();
+    await writeFile(
+      repo.manifestPath,
+      JSON.stringify(
+        {
+          version: 1,
+          created_at: now,
+          updated_at: now,
+          project_id: "Not Valid",
+          workspace_name: "bad/name",
+          artifacts: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("project_id must be a non-empty kebab-case string");
+    expect(result.errors.join("\n")).toContain(
+      "workspace_name must be a non-empty string without path separators or control characters",
+    );
   });
 
   it("checks isManifest type guard", () => {

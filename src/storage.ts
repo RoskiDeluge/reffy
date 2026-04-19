@@ -3,16 +3,12 @@ import { mkdirSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { inferArtifactType, MANIFEST_VERSION, validateManifest } from "./manifest.js";
+import { createManifest, inferArtifactType, normalizeManifest, validateManifest } from "./manifest.js";
 import { resolveRefsDir } from "./refs-paths.js";
 import type { Artifact, Manifest } from "./types.js";
 
 function utcNow(): string {
   return new Date().toISOString();
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export class ReferencesStore {
@@ -38,13 +34,7 @@ export class ReferencesStore {
   }
 
   private emptyManifest(): Manifest {
-    const now = utcNow();
-    return {
-      version: MANIFEST_VERSION,
-      created_at: now,
-      updated_at: now,
-      artifacts: [],
-    };
+    return createManifest(this.repoRoot, utcNow());
   }
 
   private async readManifest(): Promise<Manifest> {
@@ -56,26 +46,7 @@ export class ReferencesStore {
       return this.emptyManifest();
     }
 
-    if (Array.isArray(raw)) {
-      return {
-        version: 0,
-        created_at: utcNow(),
-        updated_at: utcNow(),
-        artifacts: raw as Artifact[],
-      };
-    }
-
-    if (!isObject(raw)) {
-      return this.emptyManifest();
-    }
-
-    const artifacts = Array.isArray(raw.artifacts) ? (raw.artifacts as Artifact[]) : [];
-    return {
-      version: typeof raw.version === "number" ? raw.version : MANIFEST_VERSION,
-      created_at: typeof raw.created_at === "string" ? raw.created_at : utcNow(),
-      updated_at: typeof raw.updated_at === "string" ? raw.updated_at : utcNow(),
-      artifacts,
-    };
+    return normalizeManifest(raw, this.repoRoot);
   }
 
   private async writeManifest(manifest: Manifest): Promise<void> {
@@ -85,6 +56,14 @@ export class ReferencesStore {
   public async listArtifacts(): Promise<Artifact[]> {
     const manifest = await this.readManifest();
     return manifest.artifacts;
+  }
+
+  public async getWorkspaceIdentity(): Promise<{ project_id?: string; workspace_name?: string }> {
+    const manifest = await this.readManifest();
+    return {
+      project_id: manifest.project_id,
+      workspace_name: manifest.workspace_name,
+    };
   }
 
   public async getArtifact(artifactId: string): Promise<Artifact | null> {

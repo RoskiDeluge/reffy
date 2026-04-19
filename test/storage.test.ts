@@ -3,10 +3,21 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { deriveManifestIdentity } from "../src/manifest.js";
 import { ReferencesStore } from "../src/storage.js";
 import { createTempRepo } from "./helpers.js";
 
 describe("ReferencesStore", () => {
+  it("exposes manifest-backed workspace identity", async () => {
+    const repo = await createTempRepo();
+    const store = new ReferencesStore(repo.repoRoot);
+
+    await expect(store.getWorkspaceIdentity()).resolves.toEqual({
+      project_id: deriveManifestIdentity(repo.repoRoot).project_id,
+      workspace_name: deriveManifestIdentity(repo.repoRoot).workspace_name,
+    });
+  });
+
   it("creates, updates, and deletes artifacts", async () => {
     const repo = await createTempRepo();
     const store = new ReferencesStore(repo.repoRoot);

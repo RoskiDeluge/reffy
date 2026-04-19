@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { deriveManifestIdentity, normalizeManifest } from "./manifest.js";
 import {
   DEFAULT_REFS_DIRNAME,
   LEGACY_REFS_DIRNAME,
@@ -37,21 +38,30 @@ async function ensureCanonicalStructure(repoRoot: string): Promise<boolean> {
 
   await fs.mkdir(artifactsDir, { recursive: true });
   if (!(await pathExists(manifestPath))) {
-    const now = new Date().toISOString();
     await fs.writeFile(
       manifestPath,
-      JSON.stringify(
-        {
-          version: 1,
-          created_at: now,
-          updated_at: now,
-          artifacts: [],
-        },
-        null,
-        2,
-      ),
+      JSON.stringify(normalizeManifest(undefined, repoRoot), null, 2),
       "utf8",
     );
+  } else {
+    const rawText = await fs.readFile(manifestPath, "utf8").catch(() => null);
+    if (rawText) {
+      try {
+        const raw = JSON.parse(rawText) as unknown;
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          const record = raw as Record<string, unknown>;
+          const defaults = deriveManifestIdentity(repoRoot);
+          const missingIdentity = record.project_id === undefined || record.workspace_name === undefined;
+          if (missingIdentity) {
+            const nextManifest = normalizeManifest(raw, repoRoot);
+            nextManifest.updated_at = new Date().toISOString();
+            await fs.writeFile(manifestPath, JSON.stringify(nextManifest, null, 2), "utf8");
+          }
+        }
+      } catch {
+        // Leave invalid manifests untouched so validation can report the problem explicitly.
+      }
+    }
   }
 
   return created;
