@@ -110,14 +110,14 @@ async function httpJson(url, init = {}) {
 }
 
 async function ensurePod() {
-  if (POD) return POD;
+  if (POD) return { podName: POD, created: false };
   const { podName } = await httpJson(`${ENDPOINT}/pods`, { method: "POST" });
   POD = podName;
-  return POD;
+  return { podName: POD, created: true };
 }
 
 async function ensureActor(projectId, workspaceName) {
-  if (ACTOR) return ACTOR;
+  if (ACTOR) return { actorId: ACTOR, created: false };
 
   const actorConfig = {
     config: {
@@ -139,7 +139,7 @@ async function ensureActor(projectId, workspaceName) {
   });
 
   ACTOR = actorId;
-  return ACTOR;
+  return { actorId: ACTOR, created: true };
 }
 
 function actorBase() {
@@ -238,8 +238,8 @@ async function main() {
 
   const { projectId, workspaceName, manifestPath } =
     await readManifestIdentity();
-  await ensurePod();
-  await ensureActor(projectId, workspaceName);
+  const podResult = await ensurePod();
+  const actorResult = await ensureActor(projectId, workspaceName);
 
   const documents = await readLocalWorkspaceDocuments();
   const importResult = await importWorkspace(documents);
@@ -258,10 +258,13 @@ async function main() {
   console.log(`Manifest: ${manifestPath}`);
   console.log(`Pod: ${POD}`);
   console.log(`Actor: ${ACTOR}`);
+  console.log(`Created pod: ${podResult.created ? "yes" : "no"}`);
+  console.log(`Created actor: ${actorResult.created ? "yes" : "no"}`);
   console.log(`Remote backend base: ${actorBase()}`);
   console.log(`Local Reffy directory: ${path.resolve(REFFY_DIR)}`);
   console.log(`Project identity: ${projectId}`);
   console.log(`Workspace name: ${workspaceName}`);
+  console.log("Mode: remote reflects local (replace_missing=true)");
   console.log(`Imported ${importResult.imported} document(s)`);
   console.log(
     `Created: ${importResult.created}, Updated: ${importResult.updated}, Deleted: ${importResult.deleted}`,

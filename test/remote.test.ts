@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-import { collectWorkspaceDocuments, toCanonicalRemotePath } from "../src/remote.js";
+import { collectWorkspaceDocuments, toCanonicalRemotePath, updateRemoteConfigMetadata, validateImportResult } from "../src/remote.js";
 import { createTempRepo } from "./helpers.js";
 
 describe("remote runtime", () => {
@@ -31,5 +31,42 @@ describe("remote runtime", () => {
     expect(paths).toContain(".reffy/AGENTS.md");
     expect(paths).toContain(".reffy/artifacts/idea.md");
     expect(paths).not.toContain(".reffy/state/remote.json");
+  });
+
+  it("validates import responses contain all required counts", () => {
+    expect(validateImportResult({ imported: 3, created: 2, updated: 1, deleted: 0 })).toEqual({
+      imported: 3,
+      created: 2,
+      updated: 1,
+      deleted: 0,
+    });
+    expect(() => validateImportResult({ imported: 3, created: 2 })).toThrow(
+      "Remote import response missing numeric field(s): updated, deleted",
+    );
+  });
+
+  it("updates local remote state metadata after import", async () => {
+    const repo = await createTempRepo();
+    await mkdir(path.join(repo.refsDir, "state"), { recursive: true });
+    await writeFile(
+      path.join(repo.refsDir, "state", "remote.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          provider: "paseo",
+          endpoint: "https://example.invalid",
+          pod_name: "pod-123",
+          actor_id: "actor-456",
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const updated = await updateRemoteConfigMetadata(repo.repoRoot, {
+      last_imported_at: "2026-04-20T00:00:00.000Z",
+    });
+    expect(updated?.last_imported_at).toBe("2026-04-20T00:00:00.000Z");
   });
 });

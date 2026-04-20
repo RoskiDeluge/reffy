@@ -28,6 +28,13 @@ export interface EnsureRemoteInitResult {
   created_actor: boolean;
 }
 
+export interface ValidatedImportResult {
+  imported: number;
+  created: number;
+  updated: number;
+  deleted: number;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -94,6 +101,20 @@ export async function writeRemoteConfig(repoRoot: string, config: RemoteLinkConf
   return configPath;
 }
 
+export async function updateRemoteConfigMetadata(
+  repoRoot: string,
+  patch: Partial<Pick<RemoteLinkConfig, "last_imported_at">>,
+): Promise<RemoteLinkConfig | null> {
+  const existing = await readRemoteConfig(repoRoot);
+  if (!existing) return null;
+  const next: RemoteLinkConfig = {
+    ...existing,
+    ...patch,
+  };
+  await writeRemoteConfig(repoRoot, next);
+  return next;
+}
+
 export function mergeRemoteConfig(
   stored: RemoteLinkConfig | null,
   overrides: Partial<Pick<RemoteLinkConfig, "endpoint" | "pod_name" | "actor_id">>,
@@ -117,6 +138,10 @@ export function mergeRemoteConfig(
     actor_id,
     last_imported_at: stored?.last_imported_at,
   };
+}
+
+export function describeRemoteLinkage(config: Pick<RemoteLinkConfig, "endpoint" | "pod_name" | "actor_id">): string {
+  return `endpoint=${config.endpoint} pod=${config.pod_name} actor=${config.actor_id}`;
 }
 
 async function http(url: string, init: RequestInit = {}): Promise<Response> {
@@ -296,6 +321,21 @@ export function assertRemoteIdentity(summary: RemoteWorkspaceSummary, identity: 
       `Remote identity mismatch: local=${identity.project_id}/${identity.workspace_name} remote=${String(remote.project_id)}/${String(remote.workspace_name)}`,
     );
   }
+}
+
+export function validateImportResult(result: RemoteImportResult): ValidatedImportResult {
+  const requiredKeys = ["imported", "created", "updated", "deleted"] as const;
+  const missing = requiredKeys.filter((key) => typeof result[key] !== "number");
+  if (missing.length > 0) {
+    throw new Error(`Remote import response missing numeric field(s): ${missing.join(", ")}`);
+  }
+
+  return {
+    imported: result.imported as number,
+    created: result.created as number,
+    updated: result.updated as number,
+    deleted: result.deleted as number,
+  };
 }
 
 async function collectFiles(dirPath: string): Promise<string[]> {

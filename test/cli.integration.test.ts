@@ -229,6 +229,7 @@ describe("cli remote", () => {
       endpoint: string;
       pod_name: string;
       actor_id: string;
+      linkage_mode: string;
     };
     expect(parsed.status).toBe("ok");
     expect(parsed.command).toBe("remote");
@@ -236,6 +237,7 @@ describe("cli remote", () => {
     expect(parsed.endpoint).toBe("https://example.invalid");
     expect(parsed.pod_name).toBe("pod-123");
     expect(parsed.actor_id).toBe("actor-456");
+    expect(parsed.linkage_mode).toBe("existing");
 
     const config = JSON.parse(
       await readFile(path.join(repo.repoRoot, ".reffy", "state", "remote.json"), "utf8"),

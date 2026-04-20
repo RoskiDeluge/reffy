@@ -99,8 +99,8 @@ The current remote flow is:
 1. Reffy reads `project_id` and `workspace_name` from `.reffy/manifest.json`.
 2. Reffy connects to Paseo using `PASEO_ENDPOINT` or `--endpoint`.
 3. `reffy remote init --provision` creates a pod and actor when needed, then writes local linkage state to `.reffy/state/remote.json`.
-4. `reffy remote push` publishes the local workspace to that linked actor.
-5. `reffy remote status|ls|cat` inspects the linked remote workspace.
+4. `reffy remote push` publishes the local workspace to that linked actor with `replace_missing=true` by default, so remote reflects local.
+5. `reffy remote status|ls|cat` inspects the linked remote workspace using the saved linkage state unless you override it.
 
 ### Minimal connection requirement
 
@@ -141,6 +141,8 @@ That file contains the connection tuple Reffy uses to reach the backend:
 
 This file is local runtime state. It is not part of the synced remote workspace and is intentionally excluded from `reffy remote push`.
 
+The file can also record local sync metadata such as the last successful import timestamp. That metadata is for local diagnostics and does not become part of the remote workspace contract.
+
 ### Example flow
 
 ```bash
@@ -151,6 +153,23 @@ reffy remote push
 reffy remote ls
 reffy remote cat .reffy/manifest.json
 ```
+
+`reffy remote status` is the primary diagnostic command for this flow. It reports:
+
+- the saved linkage being used
+- the local manifest identity
+- the remote workspace identity
+- remote document counts when reachable
+
+`reffy remote push` reports:
+
+- local document count
+- imported count
+- created count
+- updated count
+- deleted count
+
+That makes the default prune/import behavior auditable without dropping to direct backend API calls.
 
 ## Manifest Contract
 
