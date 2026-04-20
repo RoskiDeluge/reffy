@@ -51,6 +51,7 @@ The first implementation SHALL keep the fresh-provision connection model minimal
 - **THEN** the command output indicates whether the pod and actor were newly created or reused
 - **AND** the output identifies the saved linkage path and the workspace identity used
 
+## ADDED Requirements
 ### Requirement: Remote Debugging Sufficiency
 The step-1 command set SHALL be sufficient for routine remote debugging without direct backend API calls.
 

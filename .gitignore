@@ -8,3 +8,6 @@ coverage/
 
 # vendor projects
 .vendor/
+
+#paseo
+.reffy/state/
