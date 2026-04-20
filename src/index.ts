@@ -3,6 +3,7 @@ export { MANIFEST_VERSION, allowedKindExtensions, validateManifest } from "./man
 export { runDoctor } from "./doctor.js";
 export { createPlanScaffold } from "./plan.js";
 export { loadDotEnvIfPresent, parseDotEnv } from "./env.js";
+export { ensureGitignoreEntries } from "./gitignore.js";
 export {
   collectWorkspaceDocuments,
   ensureRemoteInit,

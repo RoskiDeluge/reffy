@@ -251,6 +251,9 @@ describe("cli remote", () => {
     expect(config.endpoint).toBe("https://example.invalid");
     expect(config.pod_name).toBe("pod-123");
     expect(config.actor_id).toBe("actor-456");
+
+    const gitignore = await readFile(path.join(repo.repoRoot, ".gitignore"), "utf8");
+    expect(gitignore).toContain(".reffy/state/");
   });
 
   it("fails remote push without configured linkage", async () => {

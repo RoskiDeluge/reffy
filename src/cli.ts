@@ -6,6 +6,7 @@ import path from "node:path";
 import { renderDiagram } from "./diagram.js";
 import { runDoctor } from "./doctor.js";
 import { loadDotEnvIfPresent } from "./env.js";
+import { ensureGitignoreEntries } from "./gitignore.js";
 import { archivePlanningChange } from "./plan-archive.js";
 import { createPlanScaffold } from "./plan.js";
 import { DEFAULT_PLANNING_RELATIVE_DIR, looksLikePlanningDir, resolveCanonicalPlanningPath } from "./planning-paths.js";
@@ -1025,6 +1026,7 @@ async function main(): Promise<number> {
           provision: parsed.provision,
           identity,
         });
+        const gitignore = await ensureGitignoreEntries(parsed.repoRoot, [".reffy/state/"]);
         const payload = {
           status: "ok",
           command: "remote",
@@ -1039,6 +1041,8 @@ async function main(): Promise<number> {
           project_id: identity.project_id,
           workspace_name: identity.workspace_name,
           linkage_mode: result.created_pod || result.created_actor ? "provisioned" : "existing",
+          gitignore_path: gitignore.path,
+          gitignore_added: gitignore.added,
         };
 
         if (output === "json") {
@@ -1054,6 +1058,9 @@ async function main(): Promise<number> {
           console.log(`Created pod: ${payload.created_pod ? "yes" : "no"}`);
           console.log(`Created actor: ${payload.created_actor ? "yes" : "no"}`);
           console.log(`Linkage mode: ${payload.linkage_mode}`);
+          if (payload.gitignore_added.length > 0) {
+            console.log(`Updated .gitignore: ${payload.gitignore_added.join(", ")}`);
+          }
         }
         return 0;
       }
