@@ -210,6 +210,82 @@ describe("cli summarize", () => {
   });
 });
 
+describe("cli remote", () => {
+  it("loads .env automatically for remote init and writes linkage state", async () => {
+    const repo = await createTempRepo();
+    await writeFile(
+      path.join(repo.repoRoot, ".env"),
+      ['PASEO_ENDPOINT="https://example.invalid"', 'PASEO_POD_NAME="pod-123"', 'PASEO_ACTOR_ID="actor-456"'].join("\n"),
+      "utf8",
+    );
+
+    const result = await runCli(["remote", "init", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(0);
+
+    const parsed = JSON.parse(result.stdout) as {
+      status: string;
+      command: string;
+      subcommand: string;
+      endpoint: string;
+      pod_name: string;
+      actor_id: string;
+    };
+    expect(parsed.status).toBe("ok");
+    expect(parsed.command).toBe("remote");
+    expect(parsed.subcommand).toBe("init");
+    expect(parsed.endpoint).toBe("https://example.invalid");
+    expect(parsed.pod_name).toBe("pod-123");
+    expect(parsed.actor_id).toBe("actor-456");
+
+    const config = JSON.parse(
+      await readFile(path.join(repo.repoRoot, ".reffy", "state", "remote.json"), "utf8"),
+    ) as {
+      provider: string;
+      endpoint: string;
+      pod_name: string;
+      actor_id: string;
+    };
+    expect(config.provider).toBe("paseo");
+    expect(config.endpoint).toBe("https://example.invalid");
+    expect(config.pod_name).toBe("pod-123");
+    expect(config.actor_id).toBe("actor-456");
+  });
+
+  it("fails remote push without configured linkage", async () => {
+    const repo = await createTempRepo();
+    const result = await runCli(["remote", "push", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { status: string; command: string; error: string };
+    expect(parsed.status).toBe("error");
+    expect(parsed.command).toBe("remote");
+    expect(parsed.error).toContain("Remote linkage is not configured");
+  });
+
+  it("rejects non-canonical paths for remote cat before making a network call", async () => {
+    const repo = await createTempRepo();
+    await overwriteFile(
+      path.join(repo.repoRoot, ".reffy", "state", "remote.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          provider: "paseo",
+          endpoint: "https://example.invalid",
+          pod_name: "pod-123",
+          actor_id: "actor-456",
+        },
+        null,
+        2,
+      ),
+    );
+
+    const result = await runCli(["remote", "cat", "manifest.json", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { status: string; error: string };
+    expect(parsed.status).toBe("error");
+    expect(parsed.error).toContain("canonical path rooted at .reffy/");
+  });
+});
+
 describe("cli init", () => {
   it("prints ASCII banner and full setup output in text mode", async () => {
     const repo = await createTempRepo();

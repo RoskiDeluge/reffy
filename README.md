@@ -33,6 +33,7 @@ Command summary:
 - `reffy plan create`: generates proposal, task, design, and spec scaffolds from indexed Reffy artifacts.
 - `reffy plan validate|list|show|archive`: manages the planning lifecycle under `.reffy/reffyspec/`.
 - `reffy spec list|show`: inspects current spec state under `.reffy/reffyspec/`.
+- `reffy remote init|status|push|ls|cat`: links, publishes, and inspects a Paseo-backed remote `.reffy/` workspace.
 - `reffy diagram render`: renders Mermaid diagrams as SVG or ASCII, including spec-aware generation from compatible `spec.md` files.
 
 Output modes:
@@ -54,9 +55,101 @@ reffy plan create --change-id add-login-flow --artifacts login-idea.md
 reffy plan list --output json
 reffy plan archive add-login-flow
 reffy spec show auth --output json
+reffy remote init --endpoint https://your-paseo-endpoint.example --provision
+reffy remote status --output json
+reffy remote push
+reffy remote ls
+reffy remote cat .reffy/manifest.json
 reffy diagram render --stdin --format svg < diagram.mmd
 reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format ascii
 reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format svg --output .reffy/artifacts/auth-spec.svg
+```
+
+## Remote Backend Helper
+
+Reffy includes a Paseo helper bridge at `scripts/reffy-remote-backend-demo.mjs`.
+
+The helper:
+
+- loads `.env` automatically when present
+- reads `project_id` and `workspace_name` from `.reffy/manifest.json`
+- provisions or links a Paseo `reffyRemoteBackend` actor
+- imports the local `.reffy/` workspace
+
+Expected environment variables:
+
+- `PASEO_ENDPOINT` - required unless already exported in the shell
+- `PASEO_POD_NAME` - optional existing pod override
+- `PASEO_ACTOR_ID` - optional existing actor override
+
+Examples:
+
+```bash
+npm run remote:backend:demo
+reffy remote init --provision
+reffy remote push
+```
+
+## Remote Sync
+
+Reffy can publish the local `.reffy/` workspace to a Paseo-backed remote actor and inspect it later with native CLI commands.
+
+The current remote flow is:
+
+1. Reffy reads `project_id` and `workspace_name` from `.reffy/manifest.json`.
+2. Reffy connects to Paseo using `PASEO_ENDPOINT` or `--endpoint`.
+3. `reffy remote init --provision` creates a pod and actor when needed, then writes local linkage state to `.reffy/state/remote.json`.
+4. `reffy remote push` publishes the local workspace to that linked actor.
+5. `reffy remote status|ls|cat` inspects the linked remote workspace.
+
+### Minimal connection requirement
+
+For the fresh-provision path, the only required connection value is:
+
+- `PASEO_ENDPOINT`
+
+Example `.env`:
+
+```bash
+PASEO_ENDPOINT="https://your-paseo-endpoint.example"
+```
+
+That is enough for:
+
+```bash
+reffy remote init --provision
+```
+
+Optional overrides:
+
+- `PASEO_POD_NAME` if you want to reuse an existing Paseo pod
+- `PASEO_ACTOR_ID` if you want to reuse an existing backend actor
+
+Reffy does not require separate `REFFY_PROJECT_ID` or `REFFY_WORKSPACE_NAME` values for the normal case because those come from `.reffy/manifest.json`.
+
+### Saved remote linkage
+
+After `reffy remote init`, Reffy stores the local pointer to the linked backend actor in:
+
+- `.reffy/state/remote.json`
+
+That file contains the connection tuple Reffy uses to reach the backend:
+
+- `endpoint`
+- `pod_name`
+- `actor_id`
+
+This file is local runtime state. It is not part of the synced remote workspace and is intentionally excluded from `reffy remote push`.
+
+### Example flow
+
+```bash
+reffy init
+reffy remote init --provision
+reffy remote status
+reffy remote push
+reffy remote ls
+reffy remote cat .reffy/manifest.json
 ```
 
 ## Manifest Contract

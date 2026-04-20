@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.reffy/state/
 coverage/
 .npm-cache/
 

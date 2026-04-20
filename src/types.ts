@@ -21,3 +21,31 @@ export interface Manifest {
   workspace_name?: string;
   artifacts: Artifact[];
 }
+
+export interface RemoteLinkConfig {
+  version: number;
+  provider: "paseo";
+  endpoint: string;
+  pod_name: string;
+  actor_id: string;
+  last_imported_at?: string;
+}
+
+export interface RemoteDocument {
+  path: string;
+  content: string;
+  content_type: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RemoteImportResult {
+  imported?: number;
+  created?: number;
+  updated?: number;
+  deleted?: number;
+}
+
+export interface RemoteWorkspaceSummary {
+  workspace?: Record<string, unknown>;
+  stats?: Record<string, unknown>;
+}

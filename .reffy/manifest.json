@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-04-19T01:38:27.372Z",
+  "updated_at": "2026-04-20T00:01:17.989Z",
   "project_id": "reffy",
   "workspace_name": "reffy",
   "artifacts": [
@@ -202,6 +202,57 @@
       "tags": [],
       "created_at": "2026-04-19T01:20:42.507Z",
       "updated_at": "2026-04-19T01:23:57.547Z"
+    },
+    {
+      "id": "f68da406-9d4b-440e-85ea-b3b58a69af46",
+      "name": "reffy cli step1 mvp",
+      "filename": "reffy-cli-step1-mvp.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 10348,
+      "tags": [],
+      "created_at": "2026-04-19T22:43:23.153Z",
+      "updated_at": "2026-04-19T22:52:49.079Z",
+      "related_changes": [
+        "add-remote-sync-snapshot-publication"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/proposal.md",
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/tasks.md",
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/design.md",
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/specs/remote-sync-snapshot-publication/spec.md"
+      ]
+    },
+    {
+      "id": "7097e69a-5e00-4b09-9377-9b4b27371638",
+      "name": "reffy remote sync direction",
+      "filename": "reffy-remote-sync-direction.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 6311,
+      "tags": [],
+      "created_at": "2026-04-19T22:45:54.280Z",
+      "updated_at": "2026-04-19T22:52:49.079Z",
+      "related_changes": [
+        "add-remote-sync-snapshot-publication"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/proposal.md",
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/tasks.md",
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/design.md",
+        ".reffy/reffyspec/changes/add-remote-sync-snapshot-publication/specs/remote-sync-snapshot-publication/spec.md"
+      ]
+    },
+    {
+      "id": "c15c45d8-8539-4cc4-8f89-4a72356241e2",
+      "name": "adding helper script for paseo deploy",
+      "filename": "adding-helper-script-for-paseo-deploy.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 2933,
+      "tags": [],
+      "created_at": "2026-04-19T23:38:08.588Z",
+      "updated_at": "2026-04-19T23:42:45.294Z"
     }
   ]
 }

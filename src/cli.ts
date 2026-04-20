@@ -5,10 +5,22 @@ import path from "node:path";
 
 import { renderDiagram } from "./diagram.js";
 import { runDoctor } from "./doctor.js";
+import { loadDotEnvIfPresent } from "./env.js";
 import { archivePlanningChange } from "./plan-archive.js";
 import { createPlanScaffold } from "./plan.js";
 import { DEFAULT_PLANNING_RELATIVE_DIR, looksLikePlanningDir, resolveCanonicalPlanningPath } from "./planning-paths.js";
 import { listPlanningChanges, showPlanningChange, validatePlanningChange } from "./plan-runtime.js";
+import {
+  assertRemoteIdentity,
+  collectWorkspaceDocuments,
+  ensureRemoteInit,
+  extractWorkspaceIdentity,
+  mergeRemoteConfig,
+  PaseoRemoteClient,
+  readRemoteConfig,
+  requireWorkspaceIdentity,
+  resolveRemoteConfigPath,
+} from "./remote.js";
 import { DEFAULT_REFS_DIRNAME, detectWorkspaceState, looksLikeRefsDir } from "./refs-paths.js";
 import { prepareCanonicalPlanningLayout } from "./planning-workspace.js";
 import { ReferencesStore } from "./storage.js";
@@ -365,6 +377,16 @@ interface PlanCliArgs {
   overwrite: boolean;
 }
 
+interface RemoteCliArgs {
+  repoRoot: string;
+  endpoint?: string;
+  podName?: string;
+  actorId?: string;
+  envFile?: string;
+  provision: boolean;
+  prefix?: string;
+}
+
 function getPlanPositionalArgs(argv: string[]): string[] {
   const positionals: string[] = [];
 
@@ -501,6 +523,7 @@ function usage(): string {
     "  summarize  Generate a read-only summary of indexed Reffy artifacts.",
     "  plan       Generate and manage ReffySpec planning scaffolds from indexed Reffy artifacts.",
     "  spec       Inspect current specs from the ReffySpec layout.",
+    "  remote     Link, publish, and inspect a Paseo-backed remote Reffy workspace.",
     "  diagram    Render Mermaid diagrams (supports SVG and ASCII).",
   ].join("\n");
 }
@@ -549,6 +572,25 @@ function planUsage(): string {
     "  --artifacts LIST   Comma-separated artifact filenames or ids to link",
     "  --all              Use all indexed artifacts as planning inputs",
     "  --force            Overwrite an existing non-empty change directory",
+  ].join("\n");
+}
+
+function remoteUsage(): string {
+  return [
+    "Usage:",
+    "  reffy remote init [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--provision] [--env-file PATH]",
+    "  reffy remote status [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote push [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote ls [--repo PATH] [--output text|json] [--prefix PATH] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote cat <path> [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "",
+    "Options:",
+    "  --endpoint URL    Paseo base URL. Defaults to saved config or PASEO_ENDPOINT/.env.",
+    "  --pod-name NAME   Paseo pod name. Defaults to saved config or PASEO_POD_NAME/.env.",
+    "  --actor-id ID     Paseo actor id. Defaults to saved config or PASEO_ACTOR_ID/.env.",
+    "  --provision       Create missing pod/actor during `remote init`.",
+    "  --prefix PATH     Prefix filter for `remote ls`.",
+    "  --env-file PATH   Dotenv file to load before resolving env-backed options. Defaults to .env.",
   ].join("\n");
 }
 
@@ -726,6 +768,131 @@ function parsePlanArgs(argv: string[]): PlanCliArgs {
   return args;
 }
 
+function parseRemoteArgs(argv: string[]): RemoteCliArgs {
+  const repoRoot = parseRepoArg(argv);
+  const args: RemoteCliArgs = {
+    repoRoot,
+    provision: false,
+  };
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--repo") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--repo=")) continue;
+    if (arg === "--json") continue;
+    if (arg === "--output") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--output=")) continue;
+
+    if (arg === "--endpoint") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--endpoint requires a value");
+      args.endpoint = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--endpoint=")) {
+      args.endpoint = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--pod-name") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--pod-name requires a value");
+      args.podName = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--pod-name=")) {
+      args.podName = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--actor-id") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--actor-id requires a value");
+      args.actorId = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--actor-id=")) {
+      args.actorId = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--env-file") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--env-file requires a value");
+      args.envFile = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--env-file=")) {
+      args.envFile = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--prefix") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--prefix requires a value");
+      args.prefix = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--prefix=")) {
+      args.prefix = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--provision") {
+      args.provision = true;
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown remote option: ${arg}`);
+    }
+  }
+
+  return args;
+}
+
+function getRemotePositionalArgs(argv: string[]): string[] {
+  const positionals: string[] = [];
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (
+      arg === "--repo" ||
+      arg === "--output" ||
+      arg === "--endpoint" ||
+      arg === "--pod-name" ||
+      arg === "--actor-id" ||
+      arg === "--env-file" ||
+      arg === "--prefix"
+    ) {
+      i += 1;
+      continue;
+    }
+    if (
+      arg.startsWith("--repo=") ||
+      arg.startsWith("--output=") ||
+      arg.startsWith("--endpoint=") ||
+      arg.startsWith("--pod-name=") ||
+      arg.startsWith("--actor-id=") ||
+      arg.startsWith("--env-file=") ||
+      arg.startsWith("--prefix=") ||
+      arg === "--json" ||
+      arg === "--provision"
+    ) {
+      continue;
+    }
+    if (arg.startsWith("--")) continue;
+    positionals.push(arg);
+  }
+
+  return positionals;
+}
+
 function printSection(title: string, values: string[]): void {
   console.log(`${title}:`);
   if (values.length === 0) {
@@ -735,6 +902,34 @@ function printSection(title: string, values: string[]): void {
   for (const value of values) {
     console.log(`- ${value}`);
   }
+}
+
+async function resolveRemoteContext(
+  args: RemoteCliArgs,
+): Promise<{
+  store: ReferencesStore;
+  identity: { project_id: string; workspace_name: string };
+  configPath: string;
+  savedConfig: Awaited<ReturnType<typeof readRemoteConfig>>;
+  mergedConfig: ReturnType<typeof mergeRemoteConfig>;
+}> {
+  await loadDotEnvIfPresent(args.repoRoot, args.envFile ?? ".env");
+  const store = new ReferencesStore(args.repoRoot);
+  const identity = requireWorkspaceIdentity(await store.getWorkspaceIdentity());
+  const savedConfig = await readRemoteConfig(args.repoRoot);
+  const mergedConfig = mergeRemoteConfig(savedConfig, {
+    endpoint: args.endpoint ?? process.env.PASEO_ENDPOINT,
+    pod_name: args.podName ?? process.env.PASEO_POD_NAME,
+    actor_id: args.actorId ?? process.env.PASEO_ACTOR_ID,
+  });
+
+  return {
+    store,
+    identity,
+    configPath: resolveRemoteConfigPath(args.repoRoot),
+    savedConfig,
+    mergedConfig,
+  };
 }
 
 async function main(): Promise<number> {
@@ -791,6 +986,228 @@ async function main(): Promise<number> {
       process.stdout.write("\n");
     }
     return 0;
+  }
+
+  if (command === "remote") {
+    const [subcommand, ...remoteArgs] = rest;
+    if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+      console.error(remoteUsage());
+      return 1;
+    }
+
+    const output = parseOutputMode(remoteArgs);
+    const parsed = parseRemoteArgs(remoteArgs);
+
+    try {
+      if (subcommand === "init") {
+        const { identity } = await resolveRemoteContext(parsed);
+        const endpoint = parsed.endpoint ?? process.env.PASEO_ENDPOINT;
+        if (!endpoint) {
+          throw new Error("Remote init requires --endpoint or PASEO_ENDPOINT (optionally loaded from .env)");
+        }
+
+        const result = await ensureRemoteInit(parsed.repoRoot, {
+          endpoint,
+          podName: parsed.podName ?? process.env.PASEO_POD_NAME,
+          actorId: parsed.actorId ?? process.env.PASEO_ACTOR_ID,
+          provision: parsed.provision,
+          identity,
+        });
+        const payload = {
+          status: "ok",
+          command: "remote",
+          subcommand: "init",
+          provider: result.config.provider,
+          config_path: resolveRemoteConfigPath(parsed.repoRoot),
+          endpoint: result.config.endpoint,
+          pod_name: result.config.pod_name,
+          actor_id: result.config.actor_id,
+          created_pod: result.created_pod,
+          created_actor: result.created_actor,
+          project_id: identity.project_id,
+          workspace_name: identity.workspace_name,
+        };
+
+        if (output === "json") {
+          printResult(output, payload);
+        } else {
+          console.log("Remote linkage ready");
+          console.log(`Config: ${payload.config_path}`);
+          console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Pod: ${payload.pod_name}`);
+          console.log(`Actor: ${payload.actor_id}`);
+          console.log(`Project identity: ${payload.project_id}`);
+          console.log(`Workspace name: ${payload.workspace_name}`);
+          console.log(`Created pod: ${payload.created_pod ? "yes" : "no"}`);
+          console.log(`Created actor: ${payload.created_actor ? "yes" : "no"}`);
+        }
+        return 0;
+      }
+
+      const context = await resolveRemoteContext(parsed);
+      if (!context.mergedConfig) {
+        throw new Error(
+          `Remote linkage is not configured. Run \`reffy remote init\` or provide endpoint, pod name, and actor id. Expected config path: ${context.configPath}`,
+        );
+      }
+
+      const client = new PaseoRemoteClient(context.mergedConfig);
+
+      if (subcommand === "status") {
+        const workspace = await client.getWorkspace();
+        assertRemoteIdentity(workspace, context.identity);
+        const remoteIdentity = extractWorkspaceIdentity(workspace);
+        const payload = {
+          status: "ok",
+          command: "remote",
+          subcommand: "status",
+          config_path: context.configPath,
+          provider: context.mergedConfig.provider,
+          endpoint: context.mergedConfig.endpoint,
+          pod_name: context.mergedConfig.pod_name,
+          actor_id: context.mergedConfig.actor_id,
+          local_identity: context.identity,
+          remote_identity: {
+            project_id: remoteIdentity.project_id,
+            workspace_name: remoteIdentity.workspace_name,
+          },
+          document_count: remoteIdentity.document_count,
+          workspace,
+        };
+
+        if (output === "json") {
+          printResult(output, payload);
+        } else {
+          console.log("Remote workspace reachable");
+          console.log(`Config: ${payload.config_path}`);
+          console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Pod: ${payload.pod_name}`);
+          console.log(`Actor: ${payload.actor_id}`);
+          console.log(`Local identity: ${payload.local_identity.project_id}/${payload.local_identity.workspace_name}`);
+          console.log(
+            `Remote identity: ${String(payload.remote_identity.project_id)}/${String(payload.remote_identity.workspace_name)}`,
+          );
+          console.log(`Remote document count: ${String(payload.document_count ?? "unknown")}`);
+        }
+        return 0;
+      }
+
+      if (subcommand === "push") {
+        const documents = await collectWorkspaceDocuments(parsed.repoRoot);
+        const importResult = await client.importWorkspace(documents, true);
+        const workspace = await client.getWorkspace();
+        assertRemoteIdentity(workspace, context.identity);
+        const payload = {
+          status: "ok",
+          command: "remote",
+          subcommand: "push",
+          endpoint: context.mergedConfig.endpoint,
+          pod_name: context.mergedConfig.pod_name,
+          actor_id: context.mergedConfig.actor_id,
+          project_id: context.identity.project_id,
+          workspace_name: context.identity.workspace_name,
+          local_document_count: documents.length,
+          imported: importResult.imported ?? null,
+          created: importResult.created ?? null,
+          updated: importResult.updated ?? null,
+          deleted: importResult.deleted ?? null,
+          remote_document_count: extractWorkspaceIdentity(workspace).document_count,
+        };
+
+        if (output === "json") {
+          printResult(output, payload);
+        } else {
+          console.log("Remote push complete");
+          console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Pod: ${payload.pod_name}`);
+          console.log(`Actor: ${payload.actor_id}`);
+          console.log(`Local document count: ${String(payload.local_document_count)}`);
+          console.log(`Imported: ${String(payload.imported ?? "unknown")}`);
+          console.log(`Created: ${String(payload.created ?? "unknown")}`);
+          console.log(`Updated: ${String(payload.updated ?? "unknown")}`);
+          console.log(`Deleted: ${String(payload.deleted ?? "unknown")}`);
+          console.log(`Remote document count: ${String(payload.remote_document_count ?? "unknown")}`);
+        }
+        return 0;
+      }
+
+      if (subcommand === "ls") {
+        const snapshot = await client.getSnapshot(parsed.prefix);
+        const paths = (snapshot.documents ?? [])
+          .map((document) => (typeof document.path === "string" ? document.path : ""))
+          .filter(Boolean)
+          .sort();
+        const payload = {
+          status: "ok",
+          command: "remote",
+          subcommand: "ls",
+          endpoint: context.mergedConfig.endpoint,
+          pod_name: context.mergedConfig.pod_name,
+          actor_id: context.mergedConfig.actor_id,
+          prefix: parsed.prefix ?? null,
+          paths,
+        };
+
+        if (output === "json") {
+          printResult(output, payload);
+        } else if (paths.length === 0) {
+          console.log("(none)");
+        } else {
+          for (const entry of paths) {
+            console.log(entry);
+          }
+        }
+        return 0;
+      }
+
+      if (subcommand === "cat") {
+        const [documentPath] = getRemotePositionalArgs(remoteArgs);
+        if (!documentPath) {
+          throw new Error("reffy remote cat requires a document path");
+        }
+        if (!documentPath.startsWith(".reffy/")) {
+          throw new Error("reffy remote cat requires a canonical path rooted at .reffy/");
+        }
+        const document = await client.getDocument(documentPath);
+        const payload = {
+          status: "ok",
+          command: "remote",
+          subcommand: "cat",
+          endpoint: context.mergedConfig.endpoint,
+          pod_name: context.mergedConfig.pod_name,
+          actor_id: context.mergedConfig.actor_id,
+          document: document.document ?? null,
+        };
+
+        if (output === "json") {
+          printResult(output, payload);
+        } else {
+          const content = typeof document.document?.content === "string" ? document.document.content : "";
+          process.stdout.write(content);
+          if (!content.endsWith("\n")) {
+            process.stdout.write("\n");
+          }
+        }
+        return 0;
+      }
+
+      console.error(`Unknown remote subcommand: ${subcommand}`);
+      console.error(remoteUsage());
+      return 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (output === "json") {
+        printResult(output, {
+          status: "error",
+          command: "remote",
+          subcommand,
+          error: message,
+        });
+      } else {
+        console.error(message);
+      }
+      return 1;
+    }
   }
 
   if (command === "plan") {
