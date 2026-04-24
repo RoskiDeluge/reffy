@@ -2,16 +2,36 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { resolveRefsDir } from "./refs-paths.js";
-import type { RemoteDocument, RemoteImportResult, RemoteLinkConfig, RemoteWorkspaceSummary } from "./types.js";
+import type {
+  RemoteDocument,
+  RemoteImportResult,
+  RemoteLinkConfig,
+  RemoteTarget,
+  RemoteWorkspaceSummary,
+} from "./types.js";
 
-export const REMOTE_CONFIG_VERSION = 1;
+export const REMOTE_CONFIG_VERSION = 2;
 export const REMOTE_PROVIDER = "paseo";
+export const REMOTE_BACKEND_ACTOR_TYPE = "reffyRemoteBackend";
+export const REMOTE_BACKEND_VERSION = "v2";
 const REMOTE_STATE_DIR = path.join("state");
 const REMOTE_CONFIG_FILE = "remote.json";
 
 export interface WorkspaceIdentity {
   project_id: string;
-  workspace_name: string;
+  workspace_id: string;
+}
+
+export interface ManifestIdentityLike {
+  project_id?: string;
+  workspace_ids?: string[];
+}
+
+export interface ResolvedRemoteTarget {
+  endpoint: string;
+  pod_name: string;
+  actor_id: string;
+  last_imported_at?: string;
 }
 
 export interface EnsureRemoteInitOptions {
@@ -20,10 +40,12 @@ export interface EnsureRemoteInitOptions {
   actorId?: string;
   provision: boolean;
   identity: WorkspaceIdentity;
+  existingConfig: RemoteLinkConfig | null;
 }
 
 export interface EnsureRemoteInitResult {
   config: RemoteLinkConfig;
+  target: RemoteTarget;
   created_pod: boolean;
   created_actor: boolean;
 }
@@ -51,6 +73,57 @@ export function resolveRemoteConfigPath(repoRoot: string): string {
   return path.join(resolveRefsDir(repoRoot), REMOTE_STATE_DIR, REMOTE_CONFIG_FILE);
 }
 
+export function resolveSelectedWorkspaceId(
+  identity: ManifestIdentityLike,
+  override: string | undefined,
+): string {
+  const workspaceIds = (identity.workspace_ids ?? [])
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (override !== undefined) {
+    const trimmed = override.trim();
+    if (!trimmed) {
+      throw new Error("--workspace-id requires a non-empty value");
+    }
+    if (workspaceIds.length > 0 && !workspaceIds.includes(trimmed)) {
+      throw new Error(
+        `Selected workspace id "${trimmed}" is not a member of manifest.workspace_ids: ${workspaceIds.join(", ") || "(none)"}`,
+      );
+    }
+    return trimmed;
+  }
+
+  if (workspaceIds.length === 0) {
+    throw new Error(
+      "Remote sync requires .reffy/manifest.json to define workspace_ids. Run `reffy init` or add at least one workspace id.",
+    );
+  }
+
+  if (workspaceIds.length === 1) {
+    return workspaceIds[0];
+  }
+
+  throw new Error(
+    `Manifest has multiple workspace_ids (${workspaceIds.join(", ")}); pass --workspace-id to select a target projection.`,
+  );
+}
+
+export function requireWorkspaceIdentity(
+  identity: ManifestIdentityLike,
+  selectedWorkspaceId: string,
+): WorkspaceIdentity {
+  const project_id = identity.project_id?.trim();
+  if (!project_id) {
+    throw new Error("Remote sync requires .reffy/manifest.json to define project_id");
+  }
+  const workspace_id = selectedWorkspaceId.trim();
+  if (!workspace_id) {
+    throw new Error("Remote sync requires a selected workspace_id");
+  }
+  return { project_id, workspace_id };
+}
+
 export async function readRemoteConfig(repoRoot: string): Promise<RemoteLinkConfig | null> {
   const configPath = resolveRemoteConfigPath(repoRoot);
   const raw = await fs.readFile(configPath, "utf8").catch(() => null);
@@ -68,29 +141,52 @@ export async function readRemoteConfig(repoRoot: string): Promise<RemoteLinkConf
   if (!isObject(parsed)) {
     throw new Error(`Remote config at ${configPath} must be an object`);
   }
-  if (parsed.version !== REMOTE_CONFIG_VERSION) {
-    throw new Error(`Remote config at ${configPath} must use version ${String(REMOTE_CONFIG_VERSION)}`);
-  }
   if (parsed.provider !== REMOTE_PROVIDER) {
     throw new Error(`Remote config at ${configPath} must use provider "${REMOTE_PROVIDER}"`);
   }
   if (!isNonEmptyString(parsed.endpoint)) {
     throw new Error(`Remote config at ${configPath} must define endpoint`);
   }
-  if (!isNonEmptyString(parsed.pod_name)) {
-    throw new Error(`Remote config at ${configPath} must define pod_name`);
+
+  if (parsed.version === 1) {
+    throw new Error(
+      `Remote config at ${configPath} uses the legacy v1 single-target shape. Run \`reffy remote init --provision\` against the v2 backend to reinitialize, then repush with \`reffy remote push\`.`,
+    );
   }
-  if (!isNonEmptyString(parsed.actor_id)) {
-    throw new Error(`Remote config at ${configPath} must define actor_id`);
+
+  if (parsed.version !== REMOTE_CONFIG_VERSION) {
+    throw new Error(
+      `Remote config at ${configPath} must use version ${String(REMOTE_CONFIG_VERSION)}`,
+    );
+  }
+
+  if (!isObject(parsed.targets)) {
+    throw new Error(`Remote config at ${configPath} must define targets as an object keyed by workspace_id`);
+  }
+
+  const targets: Record<string, RemoteTarget> = {};
+  for (const [workspaceId, entry] of Object.entries(parsed.targets)) {
+    if (!isObject(entry)) {
+      throw new Error(`Remote config at ${configPath} has invalid target for workspace_id "${workspaceId}"`);
+    }
+    if (!isNonEmptyString(entry.pod_name)) {
+      throw new Error(`Remote config target "${workspaceId}" must define pod_name`);
+    }
+    if (!isNonEmptyString(entry.actor_id)) {
+      throw new Error(`Remote config target "${workspaceId}" must define actor_id`);
+    }
+    targets[workspaceId] = {
+      pod_name: entry.pod_name.trim(),
+      actor_id: entry.actor_id.trim(),
+      last_imported_at: isNonEmptyString(entry.last_imported_at) ? entry.last_imported_at.trim() : undefined,
+    };
   }
 
   return {
     version: REMOTE_CONFIG_VERSION,
     provider: REMOTE_PROVIDER,
     endpoint: parsed.endpoint.trim(),
-    pod_name: parsed.pod_name.trim(),
-    actor_id: parsed.actor_id.trim(),
-    last_imported_at: isNonEmptyString(parsed.last_imported_at) ? parsed.last_imported_at.trim() : undefined,
+    targets,
   };
 }
 
@@ -103,45 +199,51 @@ export async function writeRemoteConfig(repoRoot: string, config: RemoteLinkConf
 
 export async function updateRemoteConfigMetadata(
   repoRoot: string,
-  patch: Partial<Pick<RemoteLinkConfig, "last_imported_at">>,
+  workspaceId: string,
+  patch: Partial<Pick<RemoteTarget, "last_imported_at">>,
 ): Promise<RemoteLinkConfig | null> {
   const existing = await readRemoteConfig(repoRoot);
   if (!existing) return null;
+  const target = existing.targets[workspaceId];
+  if (!target) return null;
   const next: RemoteLinkConfig = {
     ...existing,
-    ...patch,
+    targets: {
+      ...existing.targets,
+      [workspaceId]: { ...target, ...patch },
+    },
   };
   await writeRemoteConfig(repoRoot, next);
   return next;
 }
 
-export function mergeRemoteConfig(
+export function resolveRemoteTarget(
   stored: RemoteLinkConfig | null,
-  overrides: Partial<Pick<RemoteLinkConfig, "endpoint" | "pod_name" | "actor_id">>,
-): RemoteLinkConfig | null {
-  if (!stored && !overrides.endpoint && !overrides.pod_name && !overrides.actor_id) {
-    return null;
-  }
-
+  workspaceId: string,
+  overrides: { endpoint?: string; pod_name?: string; actor_id?: string },
+): ResolvedRemoteTarget | null {
   const endpoint = overrides.endpoint ?? stored?.endpoint;
-  const pod_name = overrides.pod_name ?? stored?.pod_name;
-  const actor_id = overrides.actor_id ?? stored?.actor_id;
+  const target = stored?.targets?.[workspaceId];
+  const pod_name = overrides.pod_name ?? target?.pod_name;
+  const actor_id = overrides.actor_id ?? target?.actor_id;
   if (!endpoint || !pod_name || !actor_id) {
     return null;
   }
-
   return {
-    version: REMOTE_CONFIG_VERSION,
-    provider: REMOTE_PROVIDER,
     endpoint,
     pod_name,
     actor_id,
-    last_imported_at: stored?.last_imported_at,
+    last_imported_at: target?.last_imported_at,
   };
 }
 
-export function describeRemoteLinkage(config: Pick<RemoteLinkConfig, "endpoint" | "pod_name" | "actor_id">): string {
-  return `endpoint=${config.endpoint} pod=${config.pod_name} actor=${config.actor_id}`;
+export function describeRemoteLinkage(linkage: {
+  endpoint: string;
+  pod_name: string;
+  actor_id: string;
+  workspace_id: string;
+}): string {
+  return `endpoint=${linkage.endpoint} pod=${linkage.pod_name} actor=${linkage.actor_id} workspace=${linkage.workspace_id}`;
 }
 
 async function http(url: string, init: RequestInit = {}): Promise<Response> {
@@ -164,14 +266,18 @@ async function httpJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-function actorBase(config: Pick<RemoteLinkConfig, "endpoint" | "pod_name" | "actor_id">): string {
+function actorBase(config: { endpoint: string; pod_name: string; actor_id: string }): string {
   return `${config.endpoint}/pods/${config.pod_name}/actors/${config.actor_id}`;
 }
 
-export class PaseoRemoteClient {
-  private readonly config: Pick<RemoteLinkConfig, "endpoint" | "pod_name" | "actor_id">;
+function workspaceBase(config: { endpoint: string; pod_name: string; actor_id: string }, workspaceId: string): string {
+  return `${actorBase(config)}/workspaces/${encodeURIComponent(workspaceId)}`;
+}
 
-  constructor(config: Pick<RemoteLinkConfig, "endpoint" | "pod_name" | "actor_id">) {
+export class PaseoRemoteClient {
+  private readonly config: { endpoint: string; pod_name: string; actor_id: string };
+
+  constructor(config: { endpoint: string; pod_name: string; actor_id: string }) {
     this.config = config;
   }
 
@@ -190,12 +296,12 @@ export class PaseoRemoteClient {
         method: "POST",
         body: JSON.stringify({
           config: {
-            actorType: "reffyRemoteBackend",
-            version: "v1",
+            actorType: REMOTE_BACKEND_ACTOR_TYPE,
+            version: REMOTE_BACKEND_VERSION,
             schema: { type: "object" },
             params: {
               project_id: identity.project_id,
-              workspace_name: identity.workspace_name,
+              workspace_ids: [identity.workspace_id],
               default_lock_ttl_seconds: 120,
               max_snapshot_documents: 1000,
             },
@@ -209,12 +315,16 @@ export class PaseoRemoteClient {
     return result.actorId.trim();
   }
 
-  async getWorkspace(): Promise<RemoteWorkspaceSummary> {
-    return await httpJson<RemoteWorkspaceSummary>(`${actorBase(this.config)}/workspace`);
+  async getWorkspace(workspaceId: string): Promise<RemoteWorkspaceSummary> {
+    return await httpJson<RemoteWorkspaceSummary>(workspaceBase(this.config, workspaceId));
   }
 
-  async importWorkspace(documents: RemoteDocument[], replaceMissing = true): Promise<RemoteImportResult> {
-    return await httpJson<RemoteImportResult>(`${actorBase(this.config)}/workspace/import`, {
+  async importWorkspace(
+    workspaceId: string,
+    documents: RemoteDocument[],
+    replaceMissing = true,
+  ): Promise<RemoteImportResult> {
+    return await httpJson<RemoteImportResult>(`${workspaceBase(this.config, workspaceId)}/import`, {
       method: "POST",
       body: JSON.stringify({
         documents,
@@ -223,14 +333,22 @@ export class PaseoRemoteClient {
     });
   }
 
-  async getSnapshot(prefix?: string): Promise<{ documents?: Array<{ path?: string }> }> {
+  async getSnapshot(
+    workspaceId: string,
+    prefix?: string,
+  ): Promise<{ documents?: Array<{ path?: string }> }> {
     const query = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
-    return await httpJson<{ documents?: Array<{ path?: string }> }>(`${actorBase(this.config)}/workspace/snapshot${query}`);
+    return await httpJson<{ documents?: Array<{ path?: string }> }>(
+      `${workspaceBase(this.config, workspaceId)}/snapshot${query}`,
+    );
   }
 
-  async getDocument(documentPath: string): Promise<{ document?: { path?: string; content?: string; content_type?: string } }> {
+  async getDocument(
+    workspaceId: string,
+    documentPath: string,
+  ): Promise<{ document?: { path?: string; content?: string; content_type?: string } }> {
     return await httpJson<{ document?: { path?: string; content?: string; content_type?: string } }>(
-      `${actorBase(this.config)}/workspace/documents?path=${encodeURIComponent(documentPath)}`,
+      `${workspaceBase(this.config, workspaceId)}/documents?path=${encodeURIComponent(documentPath)}`,
     );
   }
 }
@@ -241,19 +359,21 @@ export async function ensureRemoteInit(
 ): Promise<EnsureRemoteInitResult> {
   let created_pod = false;
   let created_actor = false;
-  let podName = options.podName?.trim() || "";
-  let actorId = options.actorId?.trim() || "";
-
-  if (!options.endpoint.trim()) {
+  const endpoint = options.endpoint.trim();
+  if (!endpoint) {
     throw new Error("Remote init requires an endpoint");
   }
+
+  const priorTarget = options.existingConfig?.targets[options.identity.workspace_id] ?? null;
+  let podName = options.podName?.trim() || priorTarget?.pod_name || "";
+  let actorId = options.actorId?.trim() || priorTarget?.actor_id || "";
 
   if (!podName && !options.provision) {
     throw new Error("Remote init requires --pod-name unless --provision is set");
   }
 
   const baseClient = new PaseoRemoteClient({
-    endpoint: options.endpoint.trim(),
+    endpoint,
     pod_name: podName || "pending-pod",
     actor_id: actorId || "pending-actor",
   });
@@ -268,7 +388,7 @@ export async function ensureRemoteInit(
       throw new Error("Remote init requires --actor-id unless --provision is set");
     }
     const client = new PaseoRemoteClient({
-      endpoint: options.endpoint.trim(),
+      endpoint,
       pod_name: podName,
       actor_id: "pending-actor",
     });
@@ -276,49 +396,55 @@ export async function ensureRemoteInit(
     created_actor = true;
   }
 
+  const nextTarget: RemoteTarget = {
+    pod_name: podName,
+    actor_id: actorId,
+    last_imported_at: priorTarget?.last_imported_at,
+  };
+
   const config: RemoteLinkConfig = {
     version: REMOTE_CONFIG_VERSION,
     provider: REMOTE_PROVIDER,
-    endpoint: options.endpoint.trim(),
-    pod_name: podName,
-    actor_id: actorId,
+    endpoint,
+    targets: {
+      ...(options.existingConfig?.targets ?? {}),
+      [options.identity.workspace_id]: nextTarget,
+    },
   };
 
   await writeRemoteConfig(repoRoot, config);
-  return { config, created_pod, created_actor };
-}
-
-export function requireWorkspaceIdentity(identity: {
-  project_id?: string;
-  workspace_name?: string;
-}): WorkspaceIdentity {
-  const project_id = identity.project_id?.trim();
-  const workspace_name = identity.workspace_name?.trim();
-  if (!project_id || !workspace_name) {
-    throw new Error("Remote sync requires .reffy/manifest.json to define project_id and workspace_name");
-  }
-  return { project_id, workspace_name };
+  return { config, target: nextTarget, created_pod, created_actor };
 }
 
 export function extractWorkspaceIdentity(summary: RemoteWorkspaceSummary): {
   project_id?: string | null;
-  workspace_name?: string | null;
+  workspace_id?: string | null;
+  actor_type?: string | null;
+  backend_version?: string | null;
   document_count?: number | null;
 } {
+  const source = isObject(summary.source) ? summary.source : {};
   const workspace = isObject(summary.workspace) ? summary.workspace : {};
   const stats = isObject(summary.stats) ? summary.stats : {};
   return {
-    project_id: typeof workspace.project_id === "string" ? workspace.project_id : null,
-    workspace_name: typeof workspace.workspace_name === "string" ? workspace.workspace_name : null,
+    project_id: typeof source.project_id === "string" ? source.project_id : null,
+    workspace_id: typeof workspace.workspace_id === "string" ? workspace.workspace_id : null,
+    actor_type: typeof source.actor_type === "string" ? source.actor_type : null,
+    backend_version: typeof source.version === "string" ? source.version : null,
     document_count: typeof stats.document_count === "number" ? stats.document_count : null,
   };
 }
 
 export function assertRemoteIdentity(summary: RemoteWorkspaceSummary, identity: WorkspaceIdentity): void {
   const remote = extractWorkspaceIdentity(summary);
-  if (remote.project_id !== identity.project_id || remote.workspace_name !== identity.workspace_name) {
+  if (!remote.workspace_id) {
     throw new Error(
-      `Remote identity mismatch: local=${identity.project_id}/${identity.workspace_name} remote=${String(remote.project_id)}/${String(remote.workspace_name)}`,
+      "Remote response did not include a workspace.workspace_id envelope. This likely means the linked actor is a legacy v1 backend. Reinitialize the target against reffyRemoteBackend.v2 (`reffy remote init --provision --workspace-id <id>`) and repush with `reffy remote push`.",
+    );
+  }
+  if (remote.project_id !== identity.project_id || remote.workspace_id !== identity.workspace_id) {
+    throw new Error(
+      `Remote identity mismatch: local=${identity.project_id}/${identity.workspace_id} remote=${String(remote.project_id)}/${String(remote.workspace_id)}`,
     );
   }
 }

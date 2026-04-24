@@ -35,7 +35,6 @@
     "prepare": "npm run build",
     "dev": "tsx watch src/cli.ts",
     "check": "tsc --noEmit",
-    "remote:backend:demo": "node scripts/reffy-remote-backend-demo.mjs",
     "test": "npm run build && vitest run --coverage",
     "test:watch": "vitest"
   },

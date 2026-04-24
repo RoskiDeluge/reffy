@@ -14,7 +14,7 @@ describe("ReferencesStore", () => {
 
     await expect(store.getWorkspaceIdentity()).resolves.toEqual({
       project_id: deriveManifestIdentity(repo.repoRoot).project_id,
-      workspace_name: deriveManifestIdentity(repo.repoRoot).workspace_name,
+      workspace_ids: deriveManifestIdentity(repo.repoRoot).workspace_ids,
     });
   });
 

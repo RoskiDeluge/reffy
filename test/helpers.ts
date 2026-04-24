@@ -70,7 +70,7 @@ export async function addArtifact(
     created_at: string;
     updated_at: string;
     project_id?: string;
-    workspace_name?: string;
+    workspace_ids?: string[];
     artifacts: Artifact[];
   };
   manifest.artifacts.push(artifact);

@@ -18,17 +18,23 @@ export interface Manifest {
   created_at: string;
   updated_at: string;
   project_id?: string;
+  workspace_ids?: string[];
+  /** Deprecated v1 field retained only as migration input. */
   workspace_name?: string;
   artifacts: Artifact[];
+}
+
+export interface RemoteTarget {
+  pod_name: string;
+  actor_id: string;
+  last_imported_at?: string;
 }
 
 export interface RemoteLinkConfig {
   version: number;
   provider: "paseo";
   endpoint: string;
-  pod_name: string;
-  actor_id: string;
-  last_imported_at?: string;
+  targets: Record<string, RemoteTarget>;
 }
 
 export interface RemoteDocument {
@@ -46,6 +52,7 @@ export interface RemoteImportResult {
 }
 
 export interface RemoteWorkspaceSummary {
+  source?: Record<string, unknown>;
   workspace?: Record<string, unknown>;
   stats?: Record<string, unknown>;
 }

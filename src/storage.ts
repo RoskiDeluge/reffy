@@ -58,11 +58,11 @@ export class ReferencesStore {
     return manifest.artifacts;
   }
 
-  public async getWorkspaceIdentity(): Promise<{ project_id?: string; workspace_name?: string }> {
+  public async getWorkspaceIdentity(): Promise<{ project_id?: string; workspace_ids?: string[] }> {
     const manifest = await this.readManifest();
     return {
       project_id: manifest.project_id,
-      workspace_name: manifest.workspace_name,
+      workspace_ids: manifest.workspace_ids ? [...manifest.workspace_ids] : undefined,
     };
   }
 

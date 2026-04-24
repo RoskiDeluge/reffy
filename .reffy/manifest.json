@@ -1,9 +1,11 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-04-20T01:16:32.466Z",
+  "updated_at": "2026-04-24T20:42:41.204Z",
   "project_id": "reffy",
-  "workspace_name": "reffy",
+  "workspace_ids": [
+    "reffy"
+  ],
   "artifacts": [
     {
       "id": "610e1d57-6a94-49e8-95ea-90433480544a",
@@ -267,6 +269,81 @@
         ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/design.md",
         ".reffy/reffyspec/changes/harden-remote-sync-step1/specs/harden-remote-sync-step1/spec.md"
       ]
+    },
+    {
+      "id": "f848cb8c-fa2c-4580-8f95-f22f9ca54006",
+      "name": "python package distribution",
+      "filename": "python-package-distribution.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 12383,
+      "tags": [],
+      "created_at": "2026-04-23T20:00:29.280Z",
+      "updated_at": "2026-04-23T20:18:50.910Z"
+    },
+    {
+      "id": "0cbf358c-4a7c-4866-a282-9f2e010cd632",
+      "name": "reffy mcp server direction",
+      "filename": "reffy-mcp-server-direction.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 11465,
+      "tags": [],
+      "created_at": "2026-04-23T21:28:02.868Z",
+      "updated_at": "2026-04-24T00:07:12.306Z"
+    },
+    {
+      "id": "7f9385eb-2311-4a0d-9187-2a21be276c61",
+      "name": "multi workspace membership",
+      "filename": "multi-workspace-membership.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 4247,
+      "tags": [],
+      "created_at": "2026-04-24T00:12:42.874Z",
+      "updated_at": "2026-04-24T18:59:33.736Z",
+      "related_changes": [
+        "refactor-multi-workspace-membership"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/proposal.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/tasks.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/design.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/specs/manifest-identity/spec.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/specs/remote-sync-snapshot-publication/spec.md"
+      ]
+    },
+    {
+      "id": "6ce8a6ac-f2f7-4f1d-b5a8-72a369f035eb",
+      "name": "paseo multi workspace refactor",
+      "filename": "paseo-multi-workspace-refactor.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 9365,
+      "tags": [],
+      "created_at": "2026-04-24T19:22:29.096Z",
+      "updated_at": "2026-04-24T19:22:29.096Z",
+      "related_changes": [
+        "refactor-multi-workspace-membership"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/proposal.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/tasks.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/design.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/specs/manifest-identity/spec.md",
+        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/specs/remote-sync-snapshot-publication/spec.md"
+      ]
+    },
+    {
+      "id": "0ef89980-1910-4d88-bbf7-1408dbd4c05d",
+      "name": "paseo contract reference for reffy",
+      "filename": "paseo-contract-reference-for-reffy.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 6812,
+      "tags": [],
+      "created_at": "2026-04-24T20:42:41.203Z",
+      "updated_at": "2026-04-24T20:42:41.203Z"
     }
   ]
 }

@@ -3,7 +3,14 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { allowedKindExtensions, deriveManifestIdentity, inferArtifactType, isManifest, validateManifest } from "../src/manifest.js";
+import {
+  allowedKindExtensions,
+  deriveManifestIdentity,
+  inferArtifactType,
+  isManifest,
+  normalizeManifest,
+  validateManifest,
+} from "../src/manifest.js";
 import { addArtifact, createTempRepo } from "./helpers.js";
 
 describe("manifest module", () => {
@@ -200,7 +207,7 @@ describe("manifest module", () => {
           created_at: now,
           updated_at: now,
           project_id: "Not Valid",
-          workspace_name: "bad/name",
+          workspace_ids: ["also invalid"],
           artifacts: [],
         },
         null,
@@ -212,9 +219,93 @@ describe("manifest module", () => {
     const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
     expect(result.ok).toBe(false);
     expect(result.errors.join("\n")).toContain("project_id must be a non-empty kebab-case string");
-    expect(result.errors.join("\n")).toContain(
-      "workspace_name must be a non-empty string without path separators or control characters",
+    expect(result.errors.join("\n")).toContain("workspace_ids[0] must be a non-empty kebab-case string");
+  });
+
+  it("rejects empty or duplicate workspace_ids", async () => {
+    const repo = await createTempRepo();
+    const now = new Date().toISOString();
+    await writeFile(
+      repo.manifestPath,
+      JSON.stringify(
+        {
+          version: 1,
+          created_at: now,
+          updated_at: now,
+          project_id: "my-project",
+          workspace_ids: ["my-project", "my-project"],
+          artifacts: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
     );
+
+    const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain(`workspace_ids[1] duplicates "my-project"`);
+  });
+
+  it("warns when workspace_name is present without workspace_ids", async () => {
+    const repo = await createTempRepo();
+    const now = new Date().toISOString();
+    await writeFile(
+      repo.manifestPath,
+      JSON.stringify(
+        {
+          version: 1,
+          created_at: now,
+          updated_at: now,
+          project_id: "my-project",
+          workspace_name: "my-project",
+          artifacts: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.join("\n")).toContain("workspace_name is deprecated");
+  });
+
+  it("migrates legacy workspace_name into workspace_ids via normalizeManifest", async () => {
+    const repo = await createTempRepo();
+    const now = new Date().toISOString();
+    const raw = {
+      version: 1,
+      created_at: now,
+      updated_at: now,
+      project_id: "my-project",
+      workspace_name: "My Project",
+      artifacts: [],
+    };
+
+    const migrated = normalizeManifest(raw, repo.repoRoot);
+    expect(migrated.project_id).toBe("my-project");
+    expect(migrated.workspace_ids).toEqual(["my-project"]);
+    expect(migrated.created_at).toBe(now);
+    expect(migrated.updated_at).toBe(now);
+  });
+
+  it("preserves explicit workspace_ids over legacy workspace_name", async () => {
+    const repo = await createTempRepo();
+    const now = new Date().toISOString();
+    const raw = {
+      version: 1,
+      created_at: now,
+      updated_at: now,
+      project_id: "my-project",
+      workspace_ids: ["my-project", "portfolio-alpha"],
+      workspace_name: "ignored",
+      artifacts: [],
+    };
+
+    const migrated = normalizeManifest(raw, repo.repoRoot);
+    expect(migrated.workspace_ids).toEqual(["my-project", "portfolio-alpha"]);
   });
 
   it("checks isManifest type guard", () => {

@@ -8,10 +8,11 @@ export {
   collectWorkspaceDocuments,
   ensureRemoteInit,
   extractWorkspaceIdentity,
-  mergeRemoteConfig,
   PaseoRemoteClient,
   readRemoteConfig,
   resolveRemoteConfigPath,
+  resolveRemoteTarget,
+  resolveSelectedWorkspaceId,
   toCanonicalRemotePath,
   writeRemoteConfig,
 } from "./remote.js";

@@ -227,9 +227,11 @@ describe("cli remote", () => {
       command: string;
       subcommand: string;
       endpoint: string;
+      workspace_id: string;
       pod_name: string;
       actor_id: string;
       linkage_mode: string;
+      configured_workspace_ids: string[];
     };
     expect(parsed.status).toBe("ok");
     expect(parsed.command).toBe("remote");
@@ -238,19 +240,23 @@ describe("cli remote", () => {
     expect(parsed.pod_name).toBe("pod-123");
     expect(parsed.actor_id).toBe("actor-456");
     expect(parsed.linkage_mode).toBe("existing");
+    expect(typeof parsed.workspace_id).toBe("string");
+    expect(parsed.configured_workspace_ids).toContain(parsed.workspace_id);
 
     const config = JSON.parse(
       await readFile(path.join(repo.repoRoot, ".reffy", "state", "remote.json"), "utf8"),
     ) as {
+      version: number;
       provider: string;
       endpoint: string;
-      pod_name: string;
-      actor_id: string;
+      targets: Record<string, { pod_name: string; actor_id: string }>;
     };
+    expect(config.version).toBe(2);
     expect(config.provider).toBe("paseo");
     expect(config.endpoint).toBe("https://example.invalid");
-    expect(config.pod_name).toBe("pod-123");
-    expect(config.actor_id).toBe("actor-456");
+    const target = config.targets[parsed.workspace_id];
+    expect(target?.pod_name).toBe("pod-123");
+    expect(target?.actor_id).toBe("actor-456");
 
     const gitignore = await readFile(path.join(repo.repoRoot, ".gitignore"), "utf8");
     expect(gitignore).toContain(".reffy/state/");
@@ -268,15 +274,21 @@ describe("cli remote", () => {
 
   it("rejects non-canonical paths for remote cat before making a network call", async () => {
     const repo = await createTempRepo();
+    const identity = (await new (await import("../src/storage.js")).ReferencesStore(repo.repoRoot).getWorkspaceIdentity());
+    const selectedWorkspaceId = identity.workspace_ids?.[0] ?? "default";
     await overwriteFile(
       path.join(repo.repoRoot, ".reffy", "state", "remote.json"),
       JSON.stringify(
         {
-          version: 1,
+          version: 2,
           provider: "paseo",
           endpoint: "https://example.invalid",
-          pod_name: "pod-123",
-          actor_id: "actor-456",
+          targets: {
+            [selectedWorkspaceId]: {
+              pod_name: "pod-123",
+              actor_id: "actor-456",
+            },
+          },
         },
         null,
         2,
@@ -361,7 +373,7 @@ describe("cli init", () => {
       created_at: string;
       updated_at: string;
       project_id?: string;
-      workspace_name?: string;
+      workspace_ids?: string[];
       artifacts: unknown[];
     };
 
@@ -369,7 +381,7 @@ describe("cli init", () => {
     expect(typeof manifest.created_at).toBe("string");
     expect(typeof manifest.updated_at).toBe("string");
     expect(manifest.project_id).toBe(deriveManifestIdentity(repo.repoRoot).project_id);
-    expect(manifest.workspace_name).toBe(deriveManifestIdentity(repo.repoRoot).workspace_name);
+    expect(manifest.workspace_ids).toEqual(deriveManifestIdentity(repo.repoRoot).workspace_ids);
     expect(Array.isArray(manifest.artifacts)).toBe(true);
   });
 
@@ -403,12 +415,14 @@ describe("cli init", () => {
       created_at: string;
       updated_at: string;
       project_id?: string;
+      workspace_ids?: string[];
       workspace_name?: string;
     };
     expect(migrated.created_at).toBe(original.created_at);
     expect(Date.parse(migrated.updated_at)).toBeGreaterThanOrEqual(Date.parse(original.updated_at));
     expect(migrated.project_id).toBe(deriveManifestIdentity(repo.repoRoot).project_id);
-    expect(migrated.workspace_name).toBe(deriveManifestIdentity(repo.repoRoot).workspace_name);
+    expect(migrated.workspace_ids).toEqual(deriveManifestIdentity(repo.repoRoot).workspace_ids);
+    expect(migrated.workspace_name).toBeUndefined();
   });
 
   it("does not repeat the agent instruction on idempotent reruns", async () => {

@@ -18,6 +18,7 @@ const KIND_EXTENSIONS: Record<string, string[]> = {
 };
 
 const PROJECT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const WORKSPACE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const FALLBACK_WORKSPACE_ID = "reffy-workspace";
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -33,12 +34,25 @@ function isProjectId(value: unknown): value is string {
   return typeof value === "string" && PROJECT_ID_PATTERN.test(value);
 }
 
+function isWorkspaceId(value: unknown): value is string {
+  return typeof value === "string" && WORKSPACE_ID_PATTERN.test(value);
+}
+
 function isWorkspaceName(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.trim().length > 0 &&
     !/[\\/\r\n\t]/.test(value)
   );
+}
+
+function slugifyWorkspaceId(value: string): string | null {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : null;
 }
 
 function slugifyIdentity(value: string): string {
@@ -59,23 +73,46 @@ export function allowedKindExtensions(): Record<string, string[]> {
   return Object.fromEntries(Object.entries(KIND_EXTENSIONS).map(([kind, extensions]) => [kind, [...extensions]]));
 }
 
-export function deriveManifestIdentity(repoRoot: string): Required<Pick<Manifest, "project_id" | "workspace_name">> {
+export interface ManifestIdentityDefaults {
+  project_id: string;
+  workspace_ids: string[];
+}
+
+export function deriveManifestIdentity(repoRoot: string): ManifestIdentityDefaults {
   const candidate = slugifyIdentity(path.basename(path.resolve(repoRoot)));
   const identity = candidate || FALLBACK_WORKSPACE_ID;
   return {
     project_id: identity,
-    workspace_name: identity,
+    workspace_ids: [identity],
   };
 }
 
 export function createManifest(repoRoot: string, now = new Date().toISOString()): Manifest {
+  const defaults = deriveManifestIdentity(repoRoot);
   return {
     version: MANIFEST_VERSION,
     created_at: now,
     updated_at: now,
-    ...deriveManifestIdentity(repoRoot),
+    project_id: defaults.project_id,
+    workspace_ids: defaults.workspace_ids,
     artifacts: [],
   };
+}
+
+function normalizeWorkspaceIds(raw: Record<string, unknown>, fallback: string[]): string[] {
+  const explicit = Array.isArray(raw.workspace_ids)
+    ? (raw.workspace_ids as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : null;
+  if (explicit && explicit.length > 0) {
+    return Array.from(new Set(explicit.map((entry) => entry.trim())));
+  }
+
+  if (typeof raw.workspace_name === "string" && raw.workspace_name.trim().length > 0) {
+    const migrated = slugifyWorkspaceId(raw.workspace_name) ?? raw.workspace_name.trim();
+    return [migrated];
+  }
+
+  return [...fallback];
 }
 
 export function normalizeManifest(raw: unknown, repoRoot: string): Manifest {
@@ -87,7 +124,8 @@ export function normalizeManifest(raw: unknown, repoRoot: string): Manifest {
       version: 0,
       created_at: now,
       updated_at: now,
-      ...defaults,
+      project_id: defaults.project_id,
+      workspace_ids: defaults.workspace_ids,
       artifacts: raw as Artifact[],
     };
   }
@@ -97,12 +135,13 @@ export function normalizeManifest(raw: unknown, repoRoot: string): Manifest {
   }
 
   const artifacts = Array.isArray(raw.artifacts) ? (raw.artifacts as Artifact[]) : [];
+  const workspaceIds = normalizeWorkspaceIds(raw, defaults.workspace_ids);
   return {
     version: typeof raw.version === "number" ? raw.version : MANIFEST_VERSION,
     created_at: typeof raw.created_at === "string" ? raw.created_at : now,
     updated_at: typeof raw.updated_at === "string" ? raw.updated_at : now,
     project_id: typeof raw.project_id === "string" ? raw.project_id : defaults.project_id,
-    workspace_name: typeof raw.workspace_name === "string" ? raw.workspace_name : defaults.workspace_name,
+    workspace_ids: workspaceIds,
     artifacts,
   };
 }
@@ -210,8 +249,30 @@ export async function validateManifest(manifestPath: string, artifactsDir: strin
   if (raw.project_id !== undefined && !isProjectId(raw.project_id)) {
     errors.push("project_id must be a non-empty kebab-case string");
   }
-  if (raw.workspace_name !== undefined && !isWorkspaceName(raw.workspace_name)) {
-    errors.push("workspace_name must be a non-empty string without path separators or control characters");
+  if (raw.workspace_ids !== undefined) {
+    if (!Array.isArray(raw.workspace_ids) || raw.workspace_ids.length === 0) {
+      errors.push("workspace_ids must be a non-empty array of kebab-case strings when provided");
+    } else {
+      const seen = new Set<string>();
+      raw.workspace_ids.forEach((entry, index) => {
+        if (!isWorkspaceId(entry)) {
+          errors.push(`workspace_ids[${index}] must be a non-empty kebab-case string`);
+          return;
+        }
+        if (seen.has(entry)) {
+          errors.push(`workspace_ids[${index}] duplicates "${entry}"`);
+          return;
+        }
+        seen.add(entry);
+      });
+    }
+  }
+  if (raw.workspace_name !== undefined) {
+    if (!isWorkspaceName(raw.workspace_name)) {
+      errors.push("workspace_name must be a non-empty string without path separators or control characters");
+    } else if (raw.workspace_ids === undefined) {
+      warnings.push("workspace_name is deprecated; migrate to workspace_ids");
+    }
   }
   if (!Array.isArray(raw.artifacts)) {
     errors.push("artifacts must be an array");

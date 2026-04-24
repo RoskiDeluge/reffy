@@ -65,42 +65,20 @@ reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format ascii
 reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format svg --output .reffy/artifacts/auth-spec.svg
 ```
 
-## Remote Backend Helper
-
-Reffy includes a Paseo helper bridge at `scripts/reffy-remote-backend-demo.mjs`.
-
-The helper:
-
-- loads `.env` automatically when present
-- reads `project_id` and `workspace_name` from `.reffy/manifest.json`
-- provisions or links a Paseo `reffyRemoteBackend` actor
-- imports the local `.reffy/` workspace
-
-Expected environment variables:
-
-- `PASEO_ENDPOINT` - required unless already exported in the shell
-- `PASEO_POD_NAME` - optional existing pod override
-- `PASEO_ACTOR_ID` - optional existing actor override
-
-Examples:
-
-```bash
-npm run remote:backend:demo
-reffy remote init --provision
-reffy remote push
-```
-
 ## Remote Sync
 
 Reffy can publish the local `.reffy/` workspace to a Paseo-backed remote actor and inspect it later with native CLI commands.
 
 The current remote flow is:
 
-1. Reffy reads `project_id` and `workspace_name` from `.reffy/manifest.json`.
-2. Reffy connects to Paseo using `PASEO_ENDPOINT` or `--endpoint`.
-3. `reffy remote init --provision` creates a pod and actor when needed, then writes local linkage state to `.reffy/state/remote.json`.
-4. `reffy remote push` publishes the local workspace to that linked actor with `replace_missing=true` by default, so remote reflects local.
-5. `reffy remote status|ls|cat` inspects the linked remote workspace using the saved linkage state unless you override it.
+1. Reffy reads `project_id` and `workspace_ids` from `.reffy/manifest.json`.
+2. You select one workspace projection to act on. Reffy infers the selection when `workspace_ids` has exactly one entry; otherwise pass `--workspace-id <id>`.
+3. Reffy connects to Paseo using `PASEO_ENDPOINT` or `--endpoint`.
+4. `reffy remote init --provision` creates a pod and a `reffyRemoteBackend.v2` actor for the selected workspace id when needed, then writes local linkage state to `.reffy/state/remote.json`.
+5. `reffy remote push` publishes the full local `.reffy/` tree to the selected projection through `/workspaces/{workspace_id}/...` with `replace_missing=true` by default, scoped to that workspace id.
+6. `reffy remote status|ls|cat` inspects the selected workspace projection using the saved linkage state unless you override it.
+
+One backend actor can serve multiple workspace projections for the same source `project_id`: Reffy stores one target per `workspace_id` in `.reffy/state/remote.json`, and the backend isolates documents and locks by `(workspace_id, path)`.
 
 ### Minimal connection requirement
 
@@ -124,8 +102,9 @@ Optional overrides:
 
 - `PASEO_POD_NAME` if you want to reuse an existing Paseo pod
 - `PASEO_ACTOR_ID` if you want to reuse an existing backend actor
+- `--workspace-id <id>` (or `PASEO_WORKSPACE_ID` for the helper script) when the manifest lists more than one `workspace_ids`
 
-Reffy does not require separate `REFFY_PROJECT_ID` or `REFFY_WORKSPACE_NAME` values for the normal case because those come from `.reffy/manifest.json`.
+Reffy does not require separate `REFFY_PROJECT_ID` values for the normal case because source identity comes from `.reffy/manifest.json`.
 
 ### Saved remote linkage
 
@@ -133,11 +112,21 @@ After `reffy remote init`, Reffy stores the local pointer to the linked backend 
 
 - `.reffy/state/remote.json`
 
-That file contains the connection tuple Reffy uses to reach the backend:
+That file maps each selected `workspace_id` to the backend target Reffy should use for that projection:
 
-- `endpoint`
-- `pod_name`
-- `actor_id`
+```json
+{
+  "version": 2,
+  "provider": "paseo",
+  "endpoint": "https://paseo.example",
+  "targets": {
+    "my-project": { "pod_name": "...", "actor_id": "...", "last_imported_at": "..." },
+    "portfolio-alpha": { "pod_name": "...", "actor_id": "..." }
+  }
+}
+```
+
+Multiple targets can share the same `pod_name` and `actor_id` — the backend addresses each projection separately through `/workspaces/{workspace_id}/...`.
 
 This file is local runtime state. It is not part of the synced remote workspace and is intentionally excluded from `reffy remote push`.
 
@@ -156,9 +145,9 @@ reffy remote cat .reffy/manifest.json
 
 `reffy remote status` is the primary diagnostic command for this flow. It reports:
 
-- the saved linkage being used
-- the local manifest identity
-- the remote workspace identity
+- the saved linkage being used for the selected workspace id
+- the local manifest identity (source `project_id` and selected `workspace_id`)
+- the remote identity returned from v2 (`source.actor_type`, `source.version`, `source.project_id`, `workspace.workspace_id`)
 - remote document counts when reachable
 
 `reffy remote push` reports:
@@ -173,7 +162,7 @@ That makes the default prune/import behavior auditable without dropping to direc
 
 ## Manifest Contract
 
-Reffy keeps workspace metadata in `.reffy/manifest.json`. New managed manifests include both core timestamps and workspace identity:
+Reffy keeps workspace metadata in `.reffy/manifest.json`. New managed manifests separate stable source identity (`project_id`) from plural workspace membership (`workspace_ids`):
 
 ```json
 {
@@ -181,12 +170,21 @@ Reffy keeps workspace metadata in `.reffy/manifest.json`. New managed manifests 
   "created_at": "2026-04-18T00:00:00.000Z",
   "updated_at": "2026-04-18T00:00:00.000Z",
   "project_id": "my-project",
-  "workspace_name": "my-project",
+  "workspace_ids": ["my-project"],
   "artifacts": []
 }
 ```
 
-Older v1 manifests without `project_id` and `workspace_name` still validate. Running `reffy init` migrates managed manifests by adding those fields with deterministic defaults derived from the repository name.
+A single `.reffy/` tree can belong to more than one planning workspace:
+
+```json
+{
+  "project_id": "my-project",
+  "workspace_ids": ["my-project", "portfolio-alpha", "nuveris-cross-project-planning"]
+}
+```
+
+Running `reffy init` populates `project_id` and `workspace_ids` with deterministic defaults derived from the repository name for any managed manifest that is missing them.
 
 ## Using Reffy With ReffySpec
 

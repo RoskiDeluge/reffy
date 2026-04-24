@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { deriveManifestIdentity, normalizeManifest } from "./manifest.js";
+import { normalizeManifest } from "./manifest.js";
 import {
   DEFAULT_REFS_DIRNAME,
   LEGACY_REFS_DIRNAME,
@@ -50,11 +50,14 @@ async function ensureCanonicalStructure(repoRoot: string): Promise<boolean> {
         const raw = JSON.parse(rawText) as unknown;
         if (raw && typeof raw === "object" && !Array.isArray(raw)) {
           const record = raw as Record<string, unknown>;
-          const defaults = deriveManifestIdentity(repoRoot);
-          const missingIdentity = record.project_id === undefined || record.workspace_name === undefined;
-          if (missingIdentity) {
+          const missingProjectId = record.project_id === undefined;
+          const missingWorkspaceIds =
+            !Array.isArray(record.workspace_ids) || (record.workspace_ids as unknown[]).length === 0;
+          const needsMigration = missingProjectId || missingWorkspaceIds;
+          if (needsMigration) {
             const nextManifest = normalizeManifest(raw, repoRoot);
             nextManifest.updated_at = new Date().toISOString();
+            delete nextManifest.workspace_name;
             await fs.writeFile(manifestPath, JSON.stringify(nextManifest, null, 2), "utf8");
           }
         }

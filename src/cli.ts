@@ -17,13 +17,15 @@ import {
   describeRemoteLinkage,
   ensureRemoteInit,
   extractWorkspaceIdentity,
-  mergeRemoteConfig,
   PaseoRemoteClient,
   readRemoteConfig,
   requireWorkspaceIdentity,
   resolveRemoteConfigPath,
+  resolveRemoteTarget,
+  resolveSelectedWorkspaceId,
   updateRemoteConfigMetadata,
   validateImportResult,
+  type ResolvedRemoteTarget,
 } from "./remote.js";
 import { DEFAULT_REFS_DIRNAME, detectWorkspaceState, looksLikeRefsDir } from "./refs-paths.js";
 import { prepareCanonicalPlanningLayout } from "./planning-workspace.js";
@@ -389,6 +391,7 @@ interface RemoteCliArgs {
   envFile?: string;
   provision: boolean;
   prefix?: string;
+  workspaceId?: string;
 }
 
 function getPlanPositionalArgs(argv: string[]): string[] {
@@ -582,16 +585,17 @@ function planUsage(): string {
 function remoteUsage(): string {
   return [
     "Usage:",
-    "  reffy remote init [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--provision] [--env-file PATH]",
-    "  reffy remote status [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
-    "  reffy remote push [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
-    "  reffy remote ls [--repo PATH] [--output text|json] [--prefix PATH] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
-    "  reffy remote cat <path> [--repo PATH] [--output text|json] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote init [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--provision] [--env-file PATH]",
+    "  reffy remote status [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote push [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote ls [--repo PATH] [--output text|json] [--workspace-id ID] [--prefix PATH] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote cat <path> [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
     "",
     "Options:",
+    "  --workspace-id ID Selected workspace projection. Required when the manifest has multiple workspace_ids; otherwise inferred.",
     "  --endpoint URL    Paseo base URL. Defaults to saved config or PASEO_ENDPOINT/.env.",
-    "  --pod-name NAME   Paseo pod name. Defaults to saved config or PASEO_POD_NAME/.env.",
-    "  --actor-id ID     Paseo actor id. Defaults to saved config or PASEO_ACTOR_ID/.env.",
+    "  --pod-name NAME   Paseo pod name. Defaults to saved target for the selected workspace id or PASEO_POD_NAME/.env.",
+    "  --actor-id ID     Paseo actor id. Defaults to saved target for the selected workspace id or PASEO_ACTOR_ID/.env.",
     "  --provision       Create missing pod/actor during `remote init`.",
     "  --prefix PATH     Prefix filter for `remote ls`.",
     "  --env-file PATH   Dotenv file to load before resolving env-backed options. Defaults to .env.",
@@ -848,6 +852,17 @@ function parseRemoteArgs(argv: string[]): RemoteCliArgs {
       args.prefix = arg.split("=", 2)[1];
       continue;
     }
+    if (arg === "--workspace-id") {
+      const value = argv[i + 1];
+      if (!value) throw new Error("--workspace-id requires a value");
+      args.workspaceId = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--workspace-id=")) {
+      args.workspaceId = arg.split("=", 2)[1];
+      continue;
+    }
     if (arg === "--provision") {
       args.provision = true;
       continue;
@@ -872,7 +887,8 @@ function getRemotePositionalArgs(argv: string[]): string[] {
       arg === "--pod-name" ||
       arg === "--actor-id" ||
       arg === "--env-file" ||
-      arg === "--prefix"
+      arg === "--prefix" ||
+      arg === "--workspace-id"
     ) {
       i += 1;
       continue;
@@ -885,6 +901,7 @@ function getRemotePositionalArgs(argv: string[]): string[] {
       arg.startsWith("--actor-id=") ||
       arg.startsWith("--env-file=") ||
       arg.startsWith("--prefix=") ||
+      arg.startsWith("--workspace-id=") ||
       arg === "--json" ||
       arg === "--provision"
     ) {
@@ -910,27 +927,44 @@ function printSection(title: string, values: string[]): void {
 
 async function resolveRemoteContext(
   args: RemoteCliArgs,
+  opts: { tolerateLegacyV1Config?: boolean } = {},
 ): Promise<{
   store: ReferencesStore;
-  identity: { project_id: string; workspace_name: string };
+  identity: { project_id: string; workspace_id: string };
+  workspaceId: string;
   configPath: string;
   savedConfig: Awaited<ReturnType<typeof readRemoteConfig>>;
-  mergedConfig: ReturnType<typeof mergeRemoteConfig>;
+  resolvedTarget: ResolvedRemoteTarget | null;
   linkageSource: "saved_config" | "cli_or_env_overrides" | "unconfigured";
+  replacedLegacy: boolean;
 }> {
   await loadDotEnvIfPresent(args.repoRoot, args.envFile ?? ".env");
   const store = new ReferencesStore(args.repoRoot);
-  const identity = requireWorkspaceIdentity(await store.getWorkspaceIdentity());
-  const savedConfig = await readRemoteConfig(args.repoRoot);
+  const identityInfo = await store.getWorkspaceIdentity();
+  const workspaceId = resolveSelectedWorkspaceId(identityInfo, args.workspaceId);
+  const identity = requireWorkspaceIdentity(identityInfo, workspaceId);
+  let savedConfig: Awaited<ReturnType<typeof readRemoteConfig>> = null;
+  let replacedLegacy = false;
+  try {
+    savedConfig = await readRemoteConfig(args.repoRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (opts.tolerateLegacyV1Config && message.includes("legacy v1 single-target shape")) {
+      replacedLegacy = true;
+    } else {
+      throw error;
+    }
+  }
   const overrideValues = {
     endpoint: args.endpoint ?? process.env.PASEO_ENDPOINT,
     pod_name: args.podName ?? process.env.PASEO_POD_NAME,
     actor_id: args.actorId ?? process.env.PASEO_ACTOR_ID,
   };
-  const mergedConfig = mergeRemoteConfig(savedConfig, overrideValues);
+  const resolvedTarget = resolveRemoteTarget(savedConfig, workspaceId, overrideValues);
   const hasOverrides = Boolean(overrideValues.endpoint || overrideValues.pod_name || overrideValues.actor_id);
-  const linkageSource = mergedConfig
-    ? savedConfig && !hasOverrides
+  const savedHasTarget = Boolean(savedConfig?.targets?.[workspaceId]);
+  const linkageSource = resolvedTarget
+    ? savedHasTarget && !hasOverrides
       ? "saved_config"
       : "cli_or_env_overrides"
     : "unconfigured";
@@ -938,10 +972,12 @@ async function resolveRemoteContext(
   return {
     store,
     identity,
+    workspaceId,
     configPath: resolveRemoteConfigPath(args.repoRoot),
     savedConfig,
-    mergedConfig,
+    resolvedTarget,
     linkageSource,
+    replacedLegacy,
   };
 }
 
@@ -1013,8 +1049,8 @@ async function main(): Promise<number> {
 
     try {
       if (subcommand === "init") {
-        const { identity, configPath } = await resolveRemoteContext(parsed);
-        const endpoint = parsed.endpoint ?? process.env.PASEO_ENDPOINT;
+        const { identity, workspaceId, configPath, savedConfig, replacedLegacy } = await resolveRemoteContext(parsed, { tolerateLegacyV1Config: true });
+        const endpoint = parsed.endpoint ?? process.env.PASEO_ENDPOINT ?? savedConfig?.endpoint;
         if (!endpoint) {
           throw new Error("Remote init requires --endpoint or PASEO_ENDPOINT (optionally loaded from .env)");
         }
@@ -1025,6 +1061,7 @@ async function main(): Promise<number> {
           actorId: parsed.actorId ?? process.env.PASEO_ACTOR_ID,
           provision: parsed.provision,
           identity,
+          existingConfig: savedConfig,
         });
         const gitignore = await ensureGitignoreEntries(parsed.repoRoot, [".reffy/state/"]);
         const payload = {
@@ -1034,13 +1071,15 @@ async function main(): Promise<number> {
           provider: result.config.provider,
           config_path: configPath,
           endpoint: result.config.endpoint,
-          pod_name: result.config.pod_name,
-          actor_id: result.config.actor_id,
+          workspace_id: workspaceId,
+          pod_name: result.target.pod_name,
+          actor_id: result.target.actor_id,
           created_pod: result.created_pod,
           created_actor: result.created_actor,
           project_id: identity.project_id,
-          workspace_name: identity.workspace_name,
           linkage_mode: result.created_pod || result.created_actor ? "provisioned" : "existing",
+          configured_workspace_ids: Object.keys(result.config.targets).sort(),
+          replaced_legacy_v1_config: replacedLegacy,
           gitignore_path: gitignore.path,
           gitignore_added: gitignore.added,
         };
@@ -1048,16 +1087,20 @@ async function main(): Promise<number> {
         if (output === "json") {
           printResult(output, payload);
         } else {
+          if (replacedLegacy) {
+            console.log("Replacing legacy v1 remote linkage with v2 target map");
+          }
           console.log("Remote linkage ready");
           console.log(`Config: ${payload.config_path}`);
           console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Workspace id: ${payload.workspace_id}`);
           console.log(`Pod: ${payload.pod_name}`);
           console.log(`Actor: ${payload.actor_id}`);
           console.log(`Project identity: ${payload.project_id}`);
-          console.log(`Workspace name: ${payload.workspace_name}`);
           console.log(`Created pod: ${payload.created_pod ? "yes" : "no"}`);
           console.log(`Created actor: ${payload.created_actor ? "yes" : "no"}`);
           console.log(`Linkage mode: ${payload.linkage_mode}`);
+          console.log(`Configured workspace ids: ${payload.configured_workspace_ids.join(", ")}`);
           if (payload.gitignore_added.length > 0) {
             console.log(`Updated .gitignore: ${payload.gitignore_added.join(", ")}`);
           }
@@ -1066,23 +1109,27 @@ async function main(): Promise<number> {
       }
 
       const context = await resolveRemoteContext(parsed);
-      if (!context.mergedConfig) {
+      if (!context.resolvedTarget) {
         throw new Error(
-          `Remote linkage is not configured. Run \`reffy remote init\` or provide endpoint, pod name, and actor id. Expected config path: ${context.configPath}`,
+          `Remote linkage is not configured for workspace_id "${context.workspaceId}". Run \`reffy remote init --workspace-id ${context.workspaceId}\` or provide endpoint, pod name, and actor id. Expected config path: ${context.configPath}`,
         );
       }
 
-      const client = new PaseoRemoteClient(context.mergedConfig);
+      const client = new PaseoRemoteClient(context.resolvedTarget);
+      const linkageLabel = describeRemoteLinkage({
+        endpoint: context.resolvedTarget.endpoint,
+        pod_name: context.resolvedTarget.pod_name,
+        actor_id: context.resolvedTarget.actor_id,
+        workspace_id: context.workspaceId,
+      });
 
       if (subcommand === "status") {
         let workspace;
         try {
-          workspace = await client.getWorkspace();
+          workspace = await client.getWorkspace(context.workspaceId);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `Remote status failed using ${describeRemoteLinkage(context.mergedConfig)}: ${message}`,
-          );
+          throw new Error(`Remote status failed using ${linkageLabel}: ${message}`);
         }
         assertRemoteIdentity(workspace, context.identity);
         const remoteIdentity = extractWorkspaceIdentity(workspace);
@@ -1091,18 +1138,21 @@ async function main(): Promise<number> {
           command: "remote",
           subcommand: "status",
           config_path: context.configPath,
-          provider: context.mergedConfig.provider,
-          endpoint: context.mergedConfig.endpoint,
-          pod_name: context.mergedConfig.pod_name,
-          actor_id: context.mergedConfig.actor_id,
+          provider: "paseo",
+          endpoint: context.resolvedTarget.endpoint,
+          workspace_id: context.workspaceId,
+          pod_name: context.resolvedTarget.pod_name,
+          actor_id: context.resolvedTarget.actor_id,
           linkage_source: context.linkageSource,
           local_identity: context.identity,
           remote_identity: {
             project_id: remoteIdentity.project_id,
-            workspace_name: remoteIdentity.workspace_name,
+            workspace_id: remoteIdentity.workspace_id,
+            actor_type: remoteIdentity.actor_type,
+            backend_version: remoteIdentity.backend_version,
           },
           document_count: remoteIdentity.document_count,
-          last_imported_at: context.savedConfig?.last_imported_at ?? null,
+          last_imported_at: context.resolvedTarget.last_imported_at ?? null,
           workspace,
         };
 
@@ -1112,12 +1162,13 @@ async function main(): Promise<number> {
           console.log("Remote workspace reachable");
           console.log(`Config: ${payload.config_path}`);
           console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Workspace id: ${payload.workspace_id}`);
           console.log(`Pod: ${payload.pod_name}`);
           console.log(`Actor: ${payload.actor_id}`);
           console.log(`Linkage source: ${payload.linkage_source}`);
-          console.log(`Local identity: ${payload.local_identity.project_id}/${payload.local_identity.workspace_name}`);
+          console.log(`Local identity: ${payload.local_identity.project_id}/${payload.local_identity.workspace_id}`);
           console.log(
-            `Remote identity: ${String(payload.remote_identity.project_id)}/${String(payload.remote_identity.workspace_name)}`,
+            `Remote identity: ${String(payload.remote_identity.project_id)}/${String(payload.remote_identity.workspace_id)} (${String(payload.remote_identity.actor_type)} ${String(payload.remote_identity.backend_version)})`,
           );
           console.log(`Remote document count: ${String(payload.document_count ?? "unknown")}`);
           console.log(`Last imported at: ${String(payload.last_imported_at ?? "never")}`);
@@ -1129,35 +1180,35 @@ async function main(): Promise<number> {
         const documents = await collectWorkspaceDocuments(parsed.repoRoot);
         let importResult;
         try {
-          importResult = validateImportResult(await client.importWorkspace(documents, true));
+          importResult = validateImportResult(
+            await client.importWorkspace(context.workspaceId, documents, true),
+          );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `Remote push failed using ${describeRemoteLinkage(context.mergedConfig)}: ${message}`,
-          );
+          throw new Error(`Remote push failed using ${linkageLabel}: ${message}`);
         }
         let workspace;
         try {
-          workspace = await client.getWorkspace();
+          workspace = await client.getWorkspace(context.workspaceId);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `Remote push could not verify remote state using ${describeRemoteLinkage(context.mergedConfig)}: ${message}`,
-          );
+          throw new Error(`Remote push could not verify remote state using ${linkageLabel}: ${message}`);
         }
         assertRemoteIdentity(workspace, context.identity);
         const importedAt = new Date().toISOString();
-        await updateRemoteConfigMetadata(parsed.repoRoot, { last_imported_at: importedAt });
+        await updateRemoteConfigMetadata(parsed.repoRoot, context.workspaceId, {
+          last_imported_at: importedAt,
+        });
         const payload = {
           status: "ok",
           command: "remote",
           subcommand: "push",
-          endpoint: context.mergedConfig.endpoint,
-          pod_name: context.mergedConfig.pod_name,
-          actor_id: context.mergedConfig.actor_id,
+          endpoint: context.resolvedTarget.endpoint,
+          workspace_id: context.workspaceId,
+          pod_name: context.resolvedTarget.pod_name,
+          actor_id: context.resolvedTarget.actor_id,
           linkage_source: context.linkageSource,
           project_id: context.identity.project_id,
-          workspace_name: context.identity.workspace_name,
           local_document_count: documents.length,
           imported: importResult.imported,
           created: importResult.created,
@@ -1173,6 +1224,7 @@ async function main(): Promise<number> {
         } else {
           console.log("Remote push complete");
           console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Workspace id: ${payload.workspace_id}`);
           console.log(`Pod: ${payload.pod_name}`);
           console.log(`Actor: ${payload.actor_id}`);
           console.log(`Linkage source: ${payload.linkage_source}`);
@@ -1191,12 +1243,10 @@ async function main(): Promise<number> {
       if (subcommand === "ls") {
         let snapshot;
         try {
-          snapshot = await client.getSnapshot(parsed.prefix);
+          snapshot = await client.getSnapshot(context.workspaceId, parsed.prefix);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `Remote ls failed using ${describeRemoteLinkage(context.mergedConfig)}: ${message}`,
-          );
+          throw new Error(`Remote ls failed using ${linkageLabel}: ${message}`);
         }
         const paths = (snapshot.documents ?? [])
           .map((document) => (typeof document.path === "string" ? document.path : ""))
@@ -1206,9 +1256,10 @@ async function main(): Promise<number> {
           status: "ok",
           command: "remote",
           subcommand: "ls",
-          endpoint: context.mergedConfig.endpoint,
-          pod_name: context.mergedConfig.pod_name,
-          actor_id: context.mergedConfig.actor_id,
+          endpoint: context.resolvedTarget.endpoint,
+          workspace_id: context.workspaceId,
+          pod_name: context.resolvedTarget.pod_name,
+          actor_id: context.resolvedTarget.actor_id,
           linkage_source: context.linkageSource,
           prefix: parsed.prefix ?? null,
           paths,
@@ -1236,25 +1287,22 @@ async function main(): Promise<number> {
         }
         let document;
         try {
-          document = await client.getDocument(documentPath);
+          document = await client.getDocument(context.workspaceId, documentPath);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `Remote cat failed using ${describeRemoteLinkage(context.mergedConfig)}: ${message}`,
-          );
+          throw new Error(`Remote cat failed using ${linkageLabel}: ${message}`);
         }
         if (!document.document) {
-          throw new Error(
-            `Remote document not found using ${describeRemoteLinkage(context.mergedConfig)}: ${documentPath}`,
-          );
+          throw new Error(`Remote document not found using ${linkageLabel}: ${documentPath}`);
         }
         const payload = {
           status: "ok",
           command: "remote",
           subcommand: "cat",
-          endpoint: context.mergedConfig.endpoint,
-          pod_name: context.mergedConfig.pod_name,
-          actor_id: context.mergedConfig.actor_id,
+          endpoint: context.resolvedTarget.endpoint,
+          workspace_id: context.workspaceId,
+          pod_name: context.resolvedTarget.pod_name,
+          actor_id: context.resolvedTarget.actor_id,
           linkage_source: context.linkageSource,
           document: document.document,
         };
