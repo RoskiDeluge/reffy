@@ -37,6 +37,8 @@ Command summary:
 - `reffy remote workspace create|get` and `reffy remote project register|list`: control-plane operations against the workspace manager actor.
 - `reffy diagram render`: renders Mermaid diagrams as SVG or ASCII, including spec-aware generation from compatible `spec.md` files.
 
+Run `reffy <command> --help` for the full flag list of any command. Most commands accept `--repo PATH` so they can be invoked from outside the project root (useful for agent harnesses).
+
 Output modes:
 
 - `--output text` (default)
@@ -56,7 +58,7 @@ reffy plan create --change-id add-login-flow --artifacts login-idea.md
 reffy plan list --output json
 reffy plan archive add-login-flow
 reffy spec show auth --output json
-reffy remote init --endpoint https://your-paseo-endpoint.example --provision
+reffy remote init --provision
 reffy remote status --output json
 reffy remote push
 reffy remote ls
@@ -64,6 +66,35 @@ reffy remote cat .reffy/manifest.json
 reffy diagram render --stdin --format svg < diagram.mmd
 reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format ascii
 reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format svg --output .reffy/artifacts/auth-spec.svg
+```
+
+## Diagnostics and Inspection
+
+### `reffy doctor`
+
+Audits the local Reffy setup: the `.reffy/` workspace exists, `manifest.json` is valid, managed `AGENTS.md` blocks are in place, and optional tooling (mermaid CLI) is reachable. Useful as a first step when a command is misbehaving in an unfamiliar repo.
+
+```bash
+reffy doctor                  # human-readable check list
+reffy doctor --output json    # machine-readable for CI
+```
+
+### `reffy summarize`
+
+Produces a read-only handoff summary of indexed artifacts — titles, kinds, tags, related changes, derived outputs. Use it to brief a fresh agent or to audit what context has accumulated under `.reffy/artifacts/` without opening every file.
+
+```bash
+reffy summarize               # text overview grouped by kind
+reffy summarize --output json # full structured payload
+```
+
+### `reffy spec list|show`
+
+Inspects the current truth in `.reffy/reffyspec/specs/`. Each capability has its own spec file with requirements and scenarios; `list` enumerates capabilities, `show` prints one spec's requirements.
+
+```bash
+reffy spec list
+reffy spec show remote-workspace-manager --output json
 ```
 
 ## Remote Sync
@@ -239,7 +270,52 @@ A practical pattern is:
 3. Keep a clear traceable path from exploratory artifacts to formal specs.
 4. Use Reffy commands for day-to-day workflow.
 
-Reference implementation in this repo:
+### Planning lifecycle
+
+The end-to-end arc for a non-trivial change:
+
+```bash
+# 1. Capture raw context as artifacts. Each artifact is a free-form
+#    markdown note; reindex registers it in the manifest.
+echo "..." > .reffy/artifacts/login-flow-idea.md
+reffy reindex
+
+# 2. Scaffold a ReffySpec change from selected artifacts. This creates
+#    .reffy/reffyspec/changes/add-login-flow/ with proposal, design,
+#    tasks, and a placeholder spec delta — all linked back to the
+#    artifacts you passed in.
+reffy plan create \
+  --change-id add-login-flow \
+  --artifacts login-flow-idea.md \
+  --title "Add login flow"
+
+# 3. Edit the generated files:
+#    - proposal.md: Why / What Changes / Impact / Reffy References
+#    - design.md: decisions, data model, open questions
+#    - tasks.md: implementation + verification checklists
+#    - specs/<capability>/spec.md: ADDED / MODIFIED / REMOVED requirements
+#      with at least one Scenario each
+
+# 4. Validate before implementing. Catches missing scenarios, malformed
+#    delta sections, and broken artifact references.
+reffy plan validate add-login-flow
+
+# 5. Implement, tick tasks in tasks.md as you go, re-validate.
+
+# 6. Archive once shipped. Moves the change under
+#    .reffy/reffyspec/changes/archive/<date>-<change-id>/ and merges
+#    the delta spec(s) into the canonical specs in
+#    .reffy/reffyspec/specs/.
+reffy plan archive add-login-flow
+```
+
+Useful side commands during the arc:
+
+- `reffy plan list` — enumerate active and archived changes.
+- `reffy plan show <change-id>` — inspect one change's state without opening every file.
+- `reffy spec list` / `reffy spec show <capability>` — see the canonical specs the deltas will land into.
+
+### Reference implementation in this repo
 
 - `AGENTS.md`: contains both managed instruction blocks and encodes sequencing.
 - `AGENTS.md`: Reffy block routes ideation/exploration requests to `@/.reffy/AGENTS.md`.
