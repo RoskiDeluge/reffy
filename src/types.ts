@@ -24,16 +24,20 @@ export interface Manifest {
   artifacts: Artifact[];
 }
 
-export interface RemoteTarget {
+export interface RemoteActorIdentity {
   pod_name: string;
   actor_id: string;
+}
+
+export interface RemoteTarget {
+  workspace_backend: RemoteActorIdentity;
   last_imported_at?: string;
 }
 
 export interface RemoteLinkConfig {
   version: number;
   provider: "paseo";
-  endpoint: string;
+  manager: RemoteActorIdentity;
   targets: Record<string, RemoteTarget>;
 }
 

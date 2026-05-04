@@ -1,30 +1,4 @@
-# remote-sync-snapshot-publication Specification
-
-## Purpose
-TBD - created by archiving change add-remote-sync-snapshot-publication. Update Purpose after archive.
-
-## Requirements
-
-### Requirement: Remote Command Surface
-The CLI SHALL expose a step-1 `reffy remote` command group for linking, publishing, and inspecting a remote `.reffy/` workspace representation.
-
-#### Scenario: Remote help is displayed
-- **WHEN** a user requests CLI help for Reffy remote functionality
-- **THEN** the CLI documents `remote init`, `remote status`, `remote push`, `remote ls`, and `remote cat <path>`
-- **AND** the help text presents the feature as a narrow local-to-remote publication workflow rather than bidirectional sync
-### Requirement: Manifest-Backed Workspace Identity
-Identity-aware remote workflows SHALL read local workspace identity from `.reffy/manifest.json`.
-
-#### Scenario: Identity-aware remote command runs with valid manifest identity
-- **WHEN** a user runs an identity-aware remote command and the manifest includes `project_id` and `workspace_name`
-- **THEN** the CLI uses those manifest fields as the local workspace identity
-- **AND** the CLI does not require duplicate identity values from environment-only configuration
-
-#### Scenario: Identity-aware remote command runs without manifest identity
-- **WHEN** a user runs `reffy remote init`, `reffy remote status`, or `reffy remote push`
-- **AND** `.reffy/manifest.json` lacks `project_id` or `workspace_name`
-- **THEN** the command fails with an actionable error
-- **AND** the error explains that remote sync requires manifest-backed workspace identity
+## MODIFIED Requirements
 ### Requirement: Separate Remote Linkage State
 The system SHALL store remote connection metadata separately from `.reffy/manifest.json` and SHALL keep the persisted linkage file free of access-granting and root-URL information.
 
@@ -42,6 +16,7 @@ The system SHALL store remote connection metadata separately from `.reffy/manife
 - **THEN** Reffy refuses to operate on the linkage
 - **AND** the output tells the user to reinitialize against the workspace manager actor with the current bearer-token-aware flow and repush the local `.reffy/` tree
 - **AND** Reffy does not silently migrate the legacy shape into the new shape
+
 ### Requirement: Paseo Provisioning Path
 The implementation SHALL provision and resolve workspace targets through the workspace manager actor, with the bearer token sourced from environment configuration on every request.
 
@@ -67,6 +42,7 @@ The implementation SHALL provision and resolve workspace targets through the wor
 - **AND** the output indicates whether the local project registration was newly created or already present
 - **AND** the output identifies the saved linkage path, manager identity, workspace backend identity, source identity, and selected workspace id
 - **AND** the output does not include the Paseo endpoint URL or the bearer token in the persisted linkage description
+
 ### Requirement: Snapshot Publication Semantics
 `reffy remote push` SHALL behave as an explicit "selected remote projection reflects local" operation against the workspace backend actor's per-project import route, with project registration as a precondition and bearer-token authentication on every request.
 
@@ -83,18 +59,7 @@ The implementation SHALL provision and resolve workspace targets through the wor
 - **AND** every Paseo request issued by the CLI carries an `Authorization: Bearer ${PASEO_TOKEN}` header
 - **AND** the CLI publishes the full document set to the workspace backend actor's `POST /workspace/projects/{project_id}/import` route for the local `project_id`
 - **AND** the command updates `last_imported_at` for the selected workspace target in the linkage file
-### Requirement: Canonical Remote Paths
-Remote document paths SHALL use canonical workspace paths rooted at `.reffy/`.
 
-#### Scenario: Local files are prepared for remote publication
-- **WHEN** Reffy constructs a remote snapshot payload from the local `.reffy/` tree
-- **THEN** each document path is represented as a normalized canonical path such as `.reffy/manifest.json`
-- **AND** the payload excludes absolute paths, parent-directory traversal, and platform-specific path separators
-
-#### Scenario: User requests a remote document by path
-- **WHEN** a user runs `reffy remote cat <path>`
-- **THEN** the CLI resolves the request against the normalized logical path namespace
-- **AND** the command fails clearly if the requested path is invalid or not found remotely
 ### Requirement: Remote Inspection and Verification
 The system SHALL provide inspection-oriented commands that read from the workspace backend actor's per-project routes using bearer-token authentication.
 
@@ -115,38 +80,8 @@ The system SHALL provide inspection-oriented commands that read from the workspa
 - **WHEN** the linked remote workspace identity does not match the selected local workspace id or source identity expected by the local manifest
 - **THEN** `reffy remote status` or `reffy remote push` fails clearly
 - **AND** the output identifies the local source identity, selected workspace id, and remote identities instead of silently proceeding
-### Requirement: Helper Script Integration
-The first implementation SHALL include a supported helper path for validating the Paseo deployment and workspace contract.
 
-#### Scenario: Helper script validates linkage and import
-- **WHEN** a user runs the supported Paseo helper script with valid endpoint and identity context
-- **THEN** the helper can provision or connect to the target pod and actor
-- **AND** the helper can import the local `.reffy/` tree
-- **AND** the helper can inspect the resulting workspace and manifest document remotely
-
-#### Scenario: Helper script reads identity from the manifest
-- **WHEN** a user runs the supported helper script in a repository with a valid `.reffy/manifest.json`
-- **THEN** the helper reads `project_id` and `workspace_name` from the manifest
-- **AND** the helper does not require duplicate `REFFY_PROJECT_ID` or `REFFY_WORKSPACE_NAME` values for the common case
-
-#### Scenario: Helper script uses local Paseo environment configuration
-- **WHEN** a user runs the supported helper script locally
-- **THEN** the helper accepts `PASEO_ENDPOINT` as required configuration
-- **AND** the helper accepts `PASEO_POD_NAME` and `PASEO_ACTOR_ID` as optional linkage overrides
-### Requirement: Step-1 Boundary
-The first remote sync capability SHALL remain one-way and non-collaborative.
-
-#### Scenario: User expects remote-to-local sync features
-- **WHEN** a user uses the step-1 remote command set
-- **THEN** the available behavior is limited to local linkage, snapshot publication, and remote inspection
-- **AND** the CLI does not expose pull, merge, or conflict-resolution workflows as part of the step-1 capability
-### Requirement: Remote Debugging Sufficiency
-The step-1 command set SHALL be sufficient for routine remote debugging without direct backend API calls.
-
-#### Scenario: User inspects remote state
-- **WHEN** a user needs to inspect what exists remotely or read one specific remote document
-- **THEN** `reffy remote ls` and `reffy remote cat <path>` provide enough visibility to inspect the linked workspace state
-- **AND** the commands fail with clear messages for invalid paths or missing documents
+## ADDED Requirements
 ### Requirement: Bearer Token Authentication
 The CLI SHALL send a bearer token on every Paseo request and SHALL source the token, along with the Paseo endpoint, from environment configuration only.
 

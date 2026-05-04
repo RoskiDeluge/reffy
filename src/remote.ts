@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { resolveRefsDir } from "./refs-paths.js";
 import type {
+  RemoteActorIdentity,
   RemoteDocument,
   RemoteImportResult,
   RemoteLinkConfig,
@@ -10,10 +11,12 @@ import type {
   RemoteWorkspaceSummary,
 } from "./types.js";
 
-export const REMOTE_CONFIG_VERSION = 2;
+export const REMOTE_CONFIG_VERSION = 4;
 export const REMOTE_PROVIDER = "paseo";
 export const REMOTE_BACKEND_ACTOR_TYPE = "reffyRemoteBackend";
 export const REMOTE_BACKEND_VERSION = "v2";
+export const REMOTE_MANAGER_ACTOR_TYPE = "reffyWorkspaceManager";
+export const REMOTE_MANAGER_VERSION = "v1";
 const REMOTE_STATE_DIR = path.join("state");
 const REMOTE_CONFIG_FILE = "remote.json";
 
@@ -29,25 +32,9 @@ export interface ManifestIdentityLike {
 
 export interface ResolvedRemoteTarget {
   endpoint: string;
-  pod_name: string;
-  actor_id: string;
+  manager: RemoteActorIdentity;
+  workspace_backend: RemoteActorIdentity;
   last_imported_at?: string;
-}
-
-export interface EnsureRemoteInitOptions {
-  endpoint: string;
-  podName?: string;
-  actorId?: string;
-  provision: boolean;
-  identity: WorkspaceIdentity;
-  existingConfig: RemoteLinkConfig | null;
-}
-
-export interface EnsureRemoteInitResult {
-  config: RemoteLinkConfig;
-  target: RemoteTarget;
-  created_pod: boolean;
-  created_actor: boolean;
 }
 
 export interface ValidatedImportResult {
@@ -67,6 +54,19 @@ function isNonEmptyString(value: unknown): value is string {
 
 function normalizeSeparators(value: string): string {
   return value.split(path.sep).join("/");
+}
+
+function readActorIdentity(value: unknown, label: string, configPath: string): RemoteActorIdentity {
+  if (!isObject(value)) {
+    throw new Error(`Remote config at ${configPath} must define ${label} as an object with pod_name and actor_id`);
+  }
+  if (!isNonEmptyString(value.pod_name)) {
+    throw new Error(`Remote config at ${configPath} must define ${label}.pod_name`);
+  }
+  if (!isNonEmptyString(value.actor_id)) {
+    throw new Error(`Remote config at ${configPath} must define ${label}.actor_id`);
+  }
+  return { pod_name: value.pod_name.trim(), actor_id: value.actor_id.trim() };
 }
 
 export function resolveRemoteConfigPath(repoRoot: string): string {
@@ -144,13 +144,22 @@ export async function readRemoteConfig(repoRoot: string): Promise<RemoteLinkConf
   if (parsed.provider !== REMOTE_PROVIDER) {
     throw new Error(`Remote config at ${configPath} must use provider "${REMOTE_PROVIDER}"`);
   }
-  if (!isNonEmptyString(parsed.endpoint)) {
-    throw new Error(`Remote config at ${configPath} must define endpoint`);
-  }
 
   if (parsed.version === 1) {
     throw new Error(
-      `Remote config at ${configPath} uses the legacy v1 single-target shape. Run \`reffy remote init --provision\` against the v2 backend to reinitialize, then repush with \`reffy remote push\`.`,
+      `Remote config at ${configPath} uses the legacy v1 single-target shape. Run \`reffy remote init\` against the workspace manager actor (reffyWorkspaceManager.v1) to reinitialize, then repush with \`reffy remote push\`.`,
+    );
+  }
+
+  if (parsed.version === 2) {
+    throw new Error(
+      `Remote config at ${configPath} uses the legacy v2 combined-backend shape. The Paseo backend now splits into reffyWorkspaceManager.v1 (control plane) and reffyRemoteBackend.v2 (per-workspace storage). Run \`reffy remote init --manager-pod <pod> --manager-actor <actor>\` (or \`--provision\`) to reinitialize, then repush with \`reffy remote push\`.`,
+    );
+  }
+
+  if (parsed.version === 3) {
+    throw new Error(
+      `Remote config at ${configPath} uses the legacy v3 shape that persisted the Paseo endpoint and pre-dates bearer-token auth. Set PASEO_ENDPOINT and PASEO_TOKEN in your .env, then run \`reffy remote init\` (with \`--provision\` for fresh setups) to reinitialize, and repush with \`reffy remote push\`.`,
     );
   }
 
@@ -159,6 +168,8 @@ export async function readRemoteConfig(repoRoot: string): Promise<RemoteLinkConf
       `Remote config at ${configPath} must use version ${String(REMOTE_CONFIG_VERSION)}`,
     );
   }
+
+  const manager = readActorIdentity(parsed.manager, "manager", configPath);
 
   if (!isObject(parsed.targets)) {
     throw new Error(`Remote config at ${configPath} must define targets as an object keyed by workspace_id`);
@@ -169,15 +180,13 @@ export async function readRemoteConfig(repoRoot: string): Promise<RemoteLinkConf
     if (!isObject(entry)) {
       throw new Error(`Remote config at ${configPath} has invalid target for workspace_id "${workspaceId}"`);
     }
-    if (!isNonEmptyString(entry.pod_name)) {
-      throw new Error(`Remote config target "${workspaceId}" must define pod_name`);
-    }
-    if (!isNonEmptyString(entry.actor_id)) {
-      throw new Error(`Remote config target "${workspaceId}" must define actor_id`);
-    }
+    const workspace_backend = readActorIdentity(
+      entry.workspace_backend,
+      `targets.${workspaceId}.workspace_backend`,
+      configPath,
+    );
     targets[workspaceId] = {
-      pod_name: entry.pod_name.trim(),
-      actor_id: entry.actor_id.trim(),
+      workspace_backend,
       last_imported_at: isNonEmptyString(entry.last_imported_at) ? entry.last_imported_at.trim() : undefined,
     };
   }
@@ -185,7 +194,7 @@ export async function readRemoteConfig(repoRoot: string): Promise<RemoteLinkConf
   return {
     version: REMOTE_CONFIG_VERSION,
     provider: REMOTE_PROVIDER,
-    endpoint: parsed.endpoint.trim(),
+    manager,
     targets,
   };
 }
@@ -217,234 +226,549 @@ export async function updateRemoteConfigMetadata(
   return next;
 }
 
+export async function removeWorkspaceTarget(
+  repoRoot: string,
+  existing: RemoteLinkConfig,
+  workspaceId: string,
+): Promise<{ config: RemoteLinkConfig; existed: boolean }> {
+  const existed = Object.prototype.hasOwnProperty.call(existing.targets, workspaceId);
+  if (!existed) {
+    return { config: existing, existed: false };
+  }
+  const nextTargets = { ...existing.targets };
+  delete nextTargets[workspaceId];
+  const next: RemoteLinkConfig = { ...existing, targets: nextTargets };
+  await writeRemoteConfig(repoRoot, next);
+  return { config: next, existed: true };
+}
+
+export async function upsertWorkspaceTarget(
+  repoRoot: string,
+  existing: RemoteLinkConfig,
+  workspaceId: string,
+  workspaceBackend: RemoteActorIdentity,
+): Promise<RemoteLinkConfig> {
+  const priorTarget = existing.targets[workspaceId];
+  const next: RemoteLinkConfig = {
+    ...existing,
+    targets: {
+      ...existing.targets,
+      [workspaceId]: {
+        workspace_backend: workspaceBackend,
+        last_imported_at: priorTarget?.last_imported_at,
+      },
+    },
+  };
+  await writeRemoteConfig(repoRoot, next);
+  return next;
+}
+
 export function resolveRemoteTarget(
   stored: RemoteLinkConfig | null,
   workspaceId: string,
-  overrides: { endpoint?: string; pod_name?: string; actor_id?: string },
+  endpoint: string,
 ): ResolvedRemoteTarget | null {
-  const endpoint = overrides.endpoint ?? stored?.endpoint;
-  const target = stored?.targets?.[workspaceId];
-  const pod_name = overrides.pod_name ?? target?.pod_name;
-  const actor_id = overrides.actor_id ?? target?.actor_id;
-  if (!endpoint || !pod_name || !actor_id) {
-    return null;
-  }
+  if (!stored) return null;
+  const target = stored.targets[workspaceId];
+  if (!target) return null;
   return {
     endpoint,
-    pod_name,
-    actor_id,
-    last_imported_at: target?.last_imported_at,
+    manager: stored.manager,
+    workspace_backend: target.workspace_backend,
+    last_imported_at: target.last_imported_at,
   };
 }
 
 export function describeRemoteLinkage(linkage: {
   endpoint: string;
-  pod_name: string;
-  actor_id: string;
+  manager: RemoteActorIdentity;
+  workspace_backend: RemoteActorIdentity;
   workspace_id: string;
 }): string {
-  return `endpoint=${linkage.endpoint} pod=${linkage.pod_name} actor=${linkage.actor_id} workspace=${linkage.workspace_id}`;
+  return [
+    `endpoint=${linkage.endpoint}`,
+    `manager=${linkage.manager.pod_name}/${linkage.manager.actor_id}`,
+    `workspace_backend=${linkage.workspace_backend.pod_name}/${linkage.workspace_backend.actor_id}`,
+    `workspace=${linkage.workspace_id}`,
+  ].join(" ");
 }
 
-async function http(url: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers ?? {});
-  if (!headers.has("Content-Type") && init.body) {
+export class RemoteHttpError extends Error {
+  readonly status: number;
+  readonly body: string;
+  readonly url: string;
+  readonly method: string;
+  constructor(status: number, statusText: string, body: string, url: string, method: string) {
+    super(`${String(status)} ${statusText} - ${body}`);
+    this.status = status;
+    this.body = body;
+    this.url = url;
+    this.method = method;
+  }
+}
+
+interface HttpOptions extends RequestInit {
+  token?: string;
+}
+
+async function http(url: string, init: HttpOptions = {}): Promise<Response> {
+  const { token, headers: rawHeaders, ...rest } = init;
+  const headers = new Headers(rawHeaders ?? {});
+  if (!headers.has("Content-Type") && rest.body) {
     headers.set("Content-Type", "application/json");
   }
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
 
-  const response = await fetch(url, { ...init, headers });
+  const response = await fetch(url, { ...rest, headers });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`${response.status} ${response.statusText} - ${text}`);
+    throw new RemoteHttpError(response.status, response.statusText, text, url, rest.method ?? "GET");
   }
 
   return response;
 }
 
-async function httpJson<T>(url: string, init: RequestInit = {}): Promise<T> {
+async function httpJson<T>(url: string, init: HttpOptions = {}): Promise<T> {
   const response = await http(url, init);
   return (await response.json()) as T;
 }
 
-function actorBase(config: { endpoint: string; pod_name: string; actor_id: string }): string {
-  return `${config.endpoint}/pods/${config.pod_name}/actors/${config.actor_id}`;
+function actorBase(endpoint: string, identity: RemoteActorIdentity): string {
+  return `${endpoint}/pods/${identity.pod_name}/actors/${identity.actor_id}`;
 }
 
-function workspaceBase(config: { endpoint: string; pod_name: string; actor_id: string }, workspaceId: string): string {
-  return `${actorBase(config)}/workspaces/${encodeURIComponent(workspaceId)}`;
+export interface ManagerWorkspaceResponse {
+  workspace?: {
+    workspace_id?: string;
+    backend?: {
+      pod_name?: string;
+      actor_id?: string;
+    };
+    metadata?: Record<string, unknown>;
+  };
 }
 
-export class PaseoRemoteClient {
-  private readonly config: { endpoint: string; pod_name: string; actor_id: string };
+export interface ManagerProjectListResponse {
+  projects?: Array<{ project_id?: string; metadata?: Record<string, unknown> }>;
+}
 
-  constructor(config: { endpoint: string; pod_name: string; actor_id: string }) {
-    this.config = config;
+export interface ManagerProjectResponse {
+  project?: { project_id?: string; metadata?: Record<string, unknown> };
+}
+
+export interface CreateManagerActorResult {
+  actorId: string;
+  managerAuthToken: string;
+}
+
+export class PaseoManagerClient {
+  private readonly endpoint: string;
+  private readonly identity: RemoteActorIdentity;
+  private readonly token?: string;
+
+  constructor(endpoint: string, identity: RemoteActorIdentity, token?: string) {
+    this.endpoint = endpoint;
+    this.identity = identity;
+    this.token = token;
+  }
+
+  private base(): string {
+    return actorBase(this.endpoint, this.identity);
+  }
+
+  private requireToken(): string {
+    if (!this.token) {
+      throw new Error(
+        "Manager request requires PASEO_TOKEN to be set in the environment. Add it to your .env (or export it) and retry.",
+      );
+    }
+    return this.token;
   }
 
   async createPod(): Promise<string> {
-    const result = await httpJson<{ podName: string }>(`${this.config.endpoint}/pods`, { method: "POST" });
+    const result = await httpJson<{ podName: string }>(`${this.endpoint}/pods`, { method: "POST" });
     if (!isNonEmptyString(result.podName)) {
       throw new Error("Paseo create pod response missing podName");
     }
     return result.podName.trim();
   }
 
-  async createActor(identity: WorkspaceIdentity): Promise<string> {
-    const result = await httpJson<{ actorId: string }>(
-      `${this.config.endpoint}/pods/${this.config.pod_name}/actors`,
+  async createManagerActor(podName: string): Promise<CreateManagerActorResult> {
+    const result = await httpJson<{ actorId: string; managerAuthToken: string }>(
+      `${this.endpoint}/pods/${podName}/actors`,
       {
         method: "POST",
         body: JSON.stringify({
           config: {
-            actorType: REMOTE_BACKEND_ACTOR_TYPE,
-            version: REMOTE_BACKEND_VERSION,
+            actorType: REMOTE_MANAGER_ACTOR_TYPE,
+            version: REMOTE_MANAGER_VERSION,
             schema: { type: "object" },
-            params: {
-              project_id: identity.project_id,
-              workspace_ids: [identity.workspace_id],
-              default_lock_ttl_seconds: 120,
-              max_snapshot_documents: 1000,
-            },
+            params: {},
           },
         }),
       },
     );
     if (!isNonEmptyString(result.actorId)) {
-      throw new Error("Paseo create actor response missing actorId");
+      throw new Error("Paseo create manager actor response missing actorId");
     }
-    return result.actorId.trim();
+    if (!isNonEmptyString(result.managerAuthToken)) {
+      throw new Error(
+        "Paseo create manager actor response missing managerAuthToken. The backend may not yet expose bearer-token issuance for reffyWorkspaceManager.v1.",
+      );
+    }
+    return { actorId: result.actorId.trim(), managerAuthToken: result.managerAuthToken.trim() };
   }
 
-  async getWorkspace(workspaceId: string): Promise<RemoteWorkspaceSummary> {
-    return await httpJson<RemoteWorkspaceSummary>(workspaceBase(this.config, workspaceId));
-  }
-
-  async importWorkspace(
-    workspaceId: string,
-    documents: RemoteDocument[],
-    replaceMissing = true,
-  ): Promise<RemoteImportResult> {
-    return await httpJson<RemoteImportResult>(`${workspaceBase(this.config, workspaceId)}/import`, {
+  async createWorkspace(workspaceId: string, metadata?: Record<string, unknown>): Promise<RemoteActorIdentity> {
+    const result = await httpJson<ManagerWorkspaceResponse>(`${this.base()}/workspaces`, {
       method: "POST",
+      token: this.requireToken(),
       body: JSON.stringify({
-        documents,
-        replace_missing: replaceMissing,
+        workspace_id: workspaceId,
+        metadata: metadata ?? {},
+        controller: { client: "reffy-cli" },
       }),
     });
+    return extractWorkspaceBackendIdentity(result, workspaceId, "createWorkspace");
   }
 
-  async getSnapshot(
-    workspaceId: string,
-    prefix?: string,
-  ): Promise<{ documents?: Array<{ path?: string }> }> {
-    const query = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
-    return await httpJson<{ documents?: Array<{ path?: string }> }>(
-      `${workspaceBase(this.config, workspaceId)}/snapshot${query}`,
+  async getWorkspace(workspaceId: string): Promise<RemoteActorIdentity> {
+    const result = await httpJson<ManagerWorkspaceResponse>(
+      `${this.base()}/workspaces/${encodeURIComponent(workspaceId)}`,
+      { token: this.requireToken() },
+    );
+    return extractWorkspaceBackendIdentity(result, workspaceId, "getWorkspace");
+  }
+
+  async registerProject(workspaceId: string, projectId: string): Promise<{ alreadyRegistered: boolean }> {
+    try {
+      await http(
+        `${this.base()}/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`,
+        {
+          method: "POST",
+          token: this.requireToken(),
+          body: JSON.stringify({
+            owner: { source: "reffy-cli" },
+            metadata: { source: "reffy-cli" },
+          }),
+        },
+      );
+      return { alreadyRegistered: false };
+    } catch (error) {
+      if (error instanceof RemoteHttpError && error.status === 409) {
+        return { alreadyRegistered: true };
+      }
+      throw error;
+    }
+  }
+
+  async listProjects(workspaceId: string): Promise<ManagerProjectListResponse> {
+    return await httpJson<ManagerProjectListResponse>(
+      `${this.base()}/workspaces/${encodeURIComponent(workspaceId)}/projects`,
+      { token: this.requireToken() },
     );
   }
 
-  async getDocument(
-    workspaceId: string,
-    documentPath: string,
-  ): Promise<{ document?: { path?: string; content?: string; content_type?: string } }> {
-    return await httpJson<{ document?: { path?: string; content?: string; content_type?: string } }>(
-      `${workspaceBase(this.config, workspaceId)}/documents?path=${encodeURIComponent(documentPath)}`,
+  async getProject(workspaceId: string, projectId: string): Promise<ManagerProjectResponse> {
+    return await httpJson<ManagerProjectResponse>(
+      `${this.base()}/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`,
+      { token: this.requireToken() },
+    );
+  }
+
+  async deleteWorkspace(workspaceId: string): Promise<{ alreadyAbsent: boolean }> {
+    try {
+      await http(`${this.base()}/workspaces/${encodeURIComponent(workspaceId)}`, {
+        method: "DELETE",
+        token: this.requireToken(),
+      });
+      return { alreadyAbsent: false };
+    } catch (error) {
+      if (error instanceof RemoteHttpError && error.status === 404) {
+        return { alreadyAbsent: true };
+      }
+      throw error;
+    }
+  }
+}
+
+function extractWorkspaceBackendIdentity(
+  response: ManagerWorkspaceResponse,
+  workspaceId: string,
+  context: string,
+): RemoteActorIdentity {
+  const workspace = response.workspace;
+  if (!isObject(workspace)) {
+    throw new Error(`Manager ${context} response missing workspace envelope for "${workspaceId}"`);
+  }
+  const backend = workspace.backend;
+  if (!isObject(backend)) {
+    throw new Error(`Manager ${context} response missing workspace.backend for "${workspaceId}"`);
+  }
+  if (!isNonEmptyString(backend.pod_name) || !isNonEmptyString(backend.actor_id)) {
+    throw new Error(`Manager ${context} response missing workspace.backend.pod_name or actor_id for "${workspaceId}"`);
+  }
+  return { pod_name: backend.pod_name.trim(), actor_id: backend.actor_id.trim() };
+}
+
+export interface ProjectDocumentListResponse {
+  documents?: Array<{ path?: string; content?: string; content_type?: string; metadata?: Record<string, unknown> }>;
+}
+
+export interface ProjectDocumentResponse {
+  document?: { path?: string; content?: string; content_type?: string; metadata?: Record<string, unknown> };
+}
+
+export interface ProjectSnapshotResponse {
+  snapshot?: Record<string, unknown>;
+  documents?: Array<{ path?: string }>;
+}
+
+export class PaseoWorkspaceBackendClient {
+  private readonly endpoint: string;
+  private readonly identity: RemoteActorIdentity;
+  private readonly token: string;
+
+  constructor(endpoint: string, identity: RemoteActorIdentity, token: string) {
+    if (!token) {
+      throw new Error(
+        "PaseoWorkspaceBackendClient requires a bearer token. Set PASEO_TOKEN in your .env (or export it) before invoking remote commands.",
+      );
+    }
+    this.endpoint = endpoint;
+    this.identity = identity;
+    this.token = token;
+  }
+
+  private base(): string {
+    return `${actorBase(this.endpoint, this.identity)}/workspace`;
+  }
+
+  async getWorkspace(): Promise<RemoteWorkspaceSummary> {
+    return await httpJson<RemoteWorkspaceSummary>(this.base(), { token: this.token });
+  }
+
+  async importProject(
+    projectId: string,
+    documents: RemoteDocument[],
+    replaceMissing = true,
+  ): Promise<RemoteImportResult> {
+    return await httpJson<RemoteImportResult>(
+      `${this.base()}/projects/${encodeURIComponent(projectId)}/import`,
+      {
+        method: "POST",
+        token: this.token,
+        body: JSON.stringify({ documents, replace_missing: replaceMissing }),
+      },
+    );
+  }
+
+  async listProjectDocuments(
+    projectId: string,
+    options: { prefix?: string } = {},
+  ): Promise<ProjectDocumentListResponse> {
+    const params = new URLSearchParams();
+    if (options.prefix) params.set("prefix", options.prefix);
+    const query = params.toString();
+    return await httpJson<ProjectDocumentListResponse>(
+      `${this.base()}/projects/${encodeURIComponent(projectId)}/documents${query ? `?${query}` : ""}`,
+      { token: this.token },
+    );
+  }
+
+  async getProjectDocument(projectId: string, documentPath: string): Promise<ProjectDocumentResponse> {
+    return await httpJson<ProjectDocumentResponse>(
+      `${this.base()}/projects/${encodeURIComponent(projectId)}/documents?path=${encodeURIComponent(documentPath)}`,
+      { token: this.token },
+    );
+  }
+
+  async getProjectSnapshot(projectId: string): Promise<ProjectSnapshotResponse> {
+    return await httpJson<ProjectSnapshotResponse>(
+      `${this.base()}/projects/${encodeURIComponent(projectId)}/snapshot`,
+      { token: this.token },
     );
   }
 }
 
-export async function ensureRemoteInit(
+export interface EnsureManagerInitOptions {
+  endpoint: string;
+  managerPodName?: string;
+  managerActorId?: string;
+  provision: boolean;
+  existingConfig: RemoteLinkConfig | null;
+}
+
+export interface EnsureManagerInitResult {
+  config: RemoteLinkConfig;
+  created_pod: boolean;
+  created_actor: boolean;
+  /** Bearer token returned by the backend when a fresh manager actor was created. Only set when `created_actor` is true. */
+  manager_auth_token?: string;
+}
+
+export async function ensureManagerInit(
   repoRoot: string,
-  options: EnsureRemoteInitOptions,
-): Promise<EnsureRemoteInitResult> {
-  let created_pod = false;
-  let created_actor = false;
+  options: EnsureManagerInitOptions,
+): Promise<EnsureManagerInitResult> {
   const endpoint = options.endpoint.trim();
   if (!endpoint) {
     throw new Error("Remote init requires an endpoint");
   }
 
-  const priorTarget = options.existingConfig?.targets[options.identity.workspace_id] ?? null;
-  let podName = options.podName?.trim() || priorTarget?.pod_name || "";
-  let actorId = options.actorId?.trim() || priorTarget?.actor_id || "";
+  const prior = options.existingConfig;
+  let podName = (options.managerPodName ?? prior?.manager.pod_name ?? "").trim();
+  let actorId = (options.managerActorId ?? prior?.manager.actor_id ?? "").trim();
+  let created_pod = false;
+  let created_actor = false;
+  let manager_auth_token: string | undefined;
 
   if (!podName && !options.provision) {
-    throw new Error("Remote init requires --pod-name unless --provision is set");
+    throw new Error(
+      "Remote init requires --manager-pod (or --provision to create a fresh pod and manager actor)",
+    );
   }
 
-  const baseClient = new PaseoRemoteClient({
-    endpoint,
+  // createPod and createManagerActor do not require a bearer token; the manager actor itself issues the token.
+  const provisioner = new PaseoManagerClient(endpoint, {
     pod_name: podName || "pending-pod",
     actor_id: actorId || "pending-actor",
   });
 
   if (!podName) {
-    podName = await baseClient.createPod();
+    podName = await provisioner.createPod();
     created_pod = true;
   }
 
   if (!actorId) {
     if (!options.provision) {
-      throw new Error("Remote init requires --actor-id unless --provision is set");
+      throw new Error(
+        "Remote init requires --manager-actor unless --provision is set so the CLI can create a fresh manager actor",
+      );
     }
-    const client = new PaseoRemoteClient({
-      endpoint,
+    const result = await new PaseoManagerClient(endpoint, {
       pod_name: podName,
       actor_id: "pending-actor",
-    });
-    actorId = await client.createActor(options.identity);
+    }).createManagerActor(podName);
+    actorId = result.actorId;
+    manager_auth_token = result.managerAuthToken;
     created_actor = true;
   }
-
-  const nextTarget: RemoteTarget = {
-    pod_name: podName,
-    actor_id: actorId,
-    last_imported_at: priorTarget?.last_imported_at,
-  };
 
   const config: RemoteLinkConfig = {
     version: REMOTE_CONFIG_VERSION,
     provider: REMOTE_PROVIDER,
-    endpoint,
-    targets: {
-      ...(options.existingConfig?.targets ?? {}),
-      [options.identity.workspace_id]: nextTarget,
-    },
+    manager: { pod_name: podName, actor_id: actorId },
+    targets: prior?.targets ?? {},
   };
-
   await writeRemoteConfig(repoRoot, config);
-  return { config, target: nextTarget, created_pod, created_actor };
+  return { config, created_pod, created_actor, manager_auth_token };
 }
 
-export function extractWorkspaceIdentity(summary: RemoteWorkspaceSummary): {
-  project_id?: string | null;
+export type WorkspaceTargetMode = "create" | "resolve" | "auto";
+
+export interface EnsureWorkspaceTargetOptions {
+  workspaceId: string;
+  mode: WorkspaceTargetMode;
+  endpoint: string;
+  token: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EnsureWorkspaceTargetResult {
+  config: RemoteLinkConfig;
+  workspace_backend: RemoteActorIdentity;
+  outcome: "created" | "resolved" | "reused";
+}
+
+export async function ensureWorkspaceTarget(
+  repoRoot: string,
+  config: RemoteLinkConfig,
+  options: EnsureWorkspaceTargetOptions,
+): Promise<EnsureWorkspaceTargetResult> {
+  const manager = new PaseoManagerClient(options.endpoint, config.manager, options.token);
+  const existing = config.targets[options.workspaceId];
+
+  if (options.mode === "resolve" || (options.mode === "auto" && existing)) {
+    try {
+      const backend = await manager.getWorkspace(options.workspaceId);
+      const nextConfig = await upsertWorkspaceTarget(repoRoot, config, options.workspaceId, backend);
+      return { config: nextConfig, workspace_backend: backend, outcome: existing ? "reused" : "resolved" };
+    } catch (error) {
+      if (options.mode === "resolve") throw error;
+      // fall through to create on auto
+    }
+  }
+
+  // create (or auto with no existing)
+  try {
+    const backend = await manager.createWorkspace(options.workspaceId, options.metadata);
+    const nextConfig = await upsertWorkspaceTarget(repoRoot, config, options.workspaceId, backend);
+    return { config: nextConfig, workspace_backend: backend, outcome: "created" };
+  } catch (error) {
+    if (error instanceof RemoteHttpError && error.status === 409) {
+      const backend = await manager.getWorkspace(options.workspaceId);
+      const nextConfig = await upsertWorkspaceTarget(repoRoot, config, options.workspaceId, backend);
+      return { config: nextConfig, workspace_backend: backend, outcome: "resolved" };
+    }
+    throw error;
+  }
+}
+
+export function extractWorkspaceSummaryIdentity(summary: RemoteWorkspaceSummary): {
   workspace_id?: string | null;
   actor_type?: string | null;
   backend_version?: string | null;
   document_count?: number | null;
+  registered_project_count?: number | null;
 } {
+  const top = summary as Record<string, unknown>;
   const source = isObject(summary.source) ? summary.source : {};
   const workspace = isObject(summary.workspace) ? summary.workspace : {};
   const stats = isObject(summary.stats) ? summary.stats : {};
+  const actorType =
+    typeof source.actor_type === "string"
+      ? source.actor_type
+      : typeof top.actor_type === "string"
+        ? (top.actor_type as string)
+        : null;
+  const backendVersion =
+    typeof source.version === "string"
+      ? source.version
+      : typeof top.version === "string"
+        ? (top.version as string)
+        : null;
+  const documentCount =
+    typeof stats.document_count === "number"
+      ? stats.document_count
+      : typeof stats.source_document_count === "number"
+        ? stats.source_document_count
+        : null;
   return {
-    project_id: typeof source.project_id === "string" ? source.project_id : null,
     workspace_id: typeof workspace.workspace_id === "string" ? workspace.workspace_id : null,
-    actor_type: typeof source.actor_type === "string" ? source.actor_type : null,
-    backend_version: typeof source.version === "string" ? source.version : null,
-    document_count: typeof stats.document_count === "number" ? stats.document_count : null,
+    actor_type: actorType,
+    backend_version: backendVersion,
+    document_count: documentCount,
+    registered_project_count:
+      typeof stats.registered_project_count === "number" ? stats.registered_project_count : null,
   };
 }
 
-export function assertRemoteIdentity(summary: RemoteWorkspaceSummary, identity: WorkspaceIdentity): void {
-  const remote = extractWorkspaceIdentity(summary);
+export function assertWorkspaceSummaryIdentity(
+  summary: RemoteWorkspaceSummary,
+  expectedWorkspaceId: string,
+): void {
+  const remote = extractWorkspaceSummaryIdentity(summary);
   if (!remote.workspace_id) {
     throw new Error(
-      "Remote response did not include a workspace.workspace_id envelope. This likely means the linked actor is a legacy v1 backend. Reinitialize the target against reffyRemoteBackend.v2 (`reffy remote init --provision --workspace-id <id>`) and repush with `reffy remote push`.",
+      "Remote workspace summary did not include a workspace.workspace_id envelope. The linked actor may be a legacy v1 backend or a non-workspace actor. Reinitialize against reffyWorkspaceManager.v1 + reffyRemoteBackend.v2 (`reffy remote init`) and repush with `reffy remote push`.",
     );
   }
-  if (remote.project_id !== identity.project_id || remote.workspace_id !== identity.workspace_id) {
+  if (remote.workspace_id !== expectedWorkspaceId) {
     throw new Error(
-      `Remote identity mismatch: local=${identity.project_id}/${identity.workspace_id} remote=${String(remote.project_id)}/${String(remote.workspace_id)}`,
+      `Remote identity mismatch: expected workspace_id=${expectedWorkspaceId} but workspace backend reported workspace_id=${String(remote.workspace_id)}. Re-resolve the workspace through the manager (\`reffy remote workspace get ${expectedWorkspaceId}\`) or reinitialize linkage.`,
     );
   }
 }

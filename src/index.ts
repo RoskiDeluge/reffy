@@ -6,9 +6,11 @@ export { loadDotEnvIfPresent, parseDotEnv } from "./env.js";
 export { ensureGitignoreEntries } from "./gitignore.js";
 export {
   collectWorkspaceDocuments,
-  ensureRemoteInit,
-  extractWorkspaceIdentity,
-  PaseoRemoteClient,
+  ensureManagerInit,
+  ensureWorkspaceTarget,
+  extractWorkspaceSummaryIdentity,
+  PaseoManagerClient,
+  PaseoWorkspaceBackendClient,
   readRemoteConfig,
   resolveRemoteConfigPath,
   resolveRemoteTarget,

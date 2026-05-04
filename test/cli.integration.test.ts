@@ -12,11 +12,22 @@ const execFileAsync = promisify(execFile);
 const CLI_PATH = path.join(process.cwd(), "dist/cli.js");
 const PLANNING_ROOT = path.join(".reffy", "reffyspec");
 
+function isolatedEnv(): NodeJS.ProcessEnv {
+  // Strip any Paseo-related vars from the parent shell so tests that exercise
+  // env preflight do not get a shell-exported PASEO_TOKEN leaking into the child.
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith("PASEO_")) continue;
+    env[key] = value;
+  }
+  return env;
+}
+
 async function runCli(args: string[], cwd = process.cwd()): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
     const { stdout, stderr } = await execFileAsync("node", [CLI_PATH, ...args], {
       cwd,
-      env: process.env,
+      env: isolatedEnv(),
     });
     return { stdout, stderr, code: 0 };
   } catch (error) {
@@ -33,7 +44,7 @@ async function runCliWithStdin(
   return await new Promise((resolve) => {
     const child = spawn("node", [CLI_PATH, ...args], {
       cwd,
-      env: process.env,
+      env: isolatedEnv(),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -211,59 +222,17 @@ describe("cli summarize", () => {
 });
 
 describe("cli remote", () => {
-  it("loads .env automatically for remote init and writes linkage state", async () => {
-    const repo = await createTempRepo();
+  async function writeRemoteEnv(repoRoot: string): Promise<void> {
     await writeFile(
-      path.join(repo.repoRoot, ".env"),
-      ['PASEO_ENDPOINT="https://example.invalid"', 'PASEO_POD_NAME="pod-123"', 'PASEO_ACTOR_ID="actor-456"'].join("\n"),
+      path.join(repoRoot, ".env"),
+      ['PASEO_ENDPOINT="https://example.invalid"', 'PASEO_TOKEN="test-token"'].join("\n"),
       "utf8",
     );
-
-    const result = await runCli(["remote", "init", "--repo", repo.repoRoot, "--output", "json"]);
-    expect(result.code).toBe(0);
-
-    const parsed = JSON.parse(result.stdout) as {
-      status: string;
-      command: string;
-      subcommand: string;
-      endpoint: string;
-      workspace_id: string;
-      pod_name: string;
-      actor_id: string;
-      linkage_mode: string;
-      configured_workspace_ids: string[];
-    };
-    expect(parsed.status).toBe("ok");
-    expect(parsed.command).toBe("remote");
-    expect(parsed.subcommand).toBe("init");
-    expect(parsed.endpoint).toBe("https://example.invalid");
-    expect(parsed.pod_name).toBe("pod-123");
-    expect(parsed.actor_id).toBe("actor-456");
-    expect(parsed.linkage_mode).toBe("existing");
-    expect(typeof parsed.workspace_id).toBe("string");
-    expect(parsed.configured_workspace_ids).toContain(parsed.workspace_id);
-
-    const config = JSON.parse(
-      await readFile(path.join(repo.repoRoot, ".reffy", "state", "remote.json"), "utf8"),
-    ) as {
-      version: number;
-      provider: string;
-      endpoint: string;
-      targets: Record<string, { pod_name: string; actor_id: string }>;
-    };
-    expect(config.version).toBe(2);
-    expect(config.provider).toBe("paseo");
-    expect(config.endpoint).toBe("https://example.invalid");
-    const target = config.targets[parsed.workspace_id];
-    expect(target?.pod_name).toBe("pod-123");
-    expect(target?.actor_id).toBe("actor-456");
-
-    const gitignore = await readFile(path.join(repo.repoRoot, ".gitignore"), "utf8");
-    expect(gitignore).toContain(".reffy/state/");
-  });
+  }
 
   it("fails remote push without configured linkage", async () => {
     const repo = await createTempRepo();
+    await writeRemoteEnv(repo.repoRoot);
     const result = await runCli(["remote", "push", "--repo", repo.repoRoot, "--output", "json"]);
     expect(result.code).toBe(1);
     const parsed = JSON.parse(result.stdout) as { status: string; command: string; error: string };
@@ -272,21 +241,39 @@ describe("cli remote", () => {
     expect(parsed.error).toContain("Remote linkage is not configured");
   });
 
+  it("fails remote push when PASEO_TOKEN is missing", async () => {
+    const repo = await createTempRepo();
+    await writeFile(path.join(repo.repoRoot, ".env"), 'PASEO_ENDPOINT="https://example.invalid"\n', "utf8");
+    const result = await runCli(["remote", "push", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { status: string; error: string };
+    expect(parsed.error).toContain("PASEO_TOKEN is required");
+  });
+
+  it("fails remote push when PASEO_ENDPOINT is missing", async () => {
+    const repo = await createTempRepo();
+    await writeFile(path.join(repo.repoRoot, ".env"), 'PASEO_TOKEN="test-token"\n', "utf8");
+    const result = await runCli(["remote", "push", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { status: string; error: string };
+    expect(parsed.error).toContain("PASEO_ENDPOINT is required");
+  });
+
   it("rejects non-canonical paths for remote cat before making a network call", async () => {
     const repo = await createTempRepo();
+    await writeRemoteEnv(repo.repoRoot);
     const identity = (await new (await import("../src/storage.js")).ReferencesStore(repo.repoRoot).getWorkspaceIdentity());
     const selectedWorkspaceId = identity.workspace_ids?.[0] ?? "default";
     await overwriteFile(
       path.join(repo.repoRoot, ".reffy", "state", "remote.json"),
       JSON.stringify(
         {
-          version: 2,
+          version: 4,
           provider: "paseo",
-          endpoint: "https://example.invalid",
+          manager: { pod_name: "pod-mgr", actor_id: "actor-mgr" },
           targets: {
             [selectedWorkspaceId]: {
-              pod_name: "pod-123",
-              actor_id: "actor-456",
+              workspace_backend: { pod_name: "pod-123", actor_id: "actor-456" },
             },
           },
         },
@@ -300,6 +287,53 @@ describe("cli remote", () => {
     const parsed = JSON.parse(result.stdout) as { status: string; error: string };
     expect(parsed.status).toBe("error");
     expect(parsed.error).toContain("canonical path rooted at .reffy/");
+  });
+
+  it("rejects legacy v2 remote.json with manager-aware reinitialization guidance", async () => {
+    const repo = await createTempRepo();
+    await writeRemoteEnv(repo.repoRoot);
+    await overwriteFile(
+      path.join(repo.repoRoot, ".reffy", "state", "remote.json"),
+      JSON.stringify(
+        {
+          version: 2,
+          provider: "paseo",
+          endpoint: "https://example.invalid",
+          targets: { whatever: { pod_name: "pod", actor_id: "actor" } },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const result = await runCli(["remote", "push", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { status: string; error: string };
+    expect(parsed.error).toContain("legacy v2 combined-backend shape");
+  });
+
+  it("rejects legacy v3 remote.json with bearer-token reinitialization guidance", async () => {
+    const repo = await createTempRepo();
+    await writeRemoteEnv(repo.repoRoot);
+    await overwriteFile(
+      path.join(repo.repoRoot, ".reffy", "state", "remote.json"),
+      JSON.stringify(
+        {
+          version: 3,
+          provider: "paseo",
+          endpoint: "https://example.invalid",
+          manager: { pod_name: "pod-mgr", actor_id: "actor-mgr" },
+          targets: { whatever: { workspace_backend: { pod_name: "pod", actor_id: "actor" } } },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const result = await runCli(["remote", "push", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { status: string; error: string };
+    expect(parsed.error).toContain("legacy v3 shape");
   });
 });
 

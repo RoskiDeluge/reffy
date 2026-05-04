@@ -33,7 +33,8 @@ Command summary:
 - `reffy plan create`: generates proposal, task, design, and spec scaffolds from indexed Reffy artifacts.
 - `reffy plan validate|list|show|archive`: manages the planning lifecycle under `.reffy/reffyspec/`.
 - `reffy spec list|show`: inspects current spec state under `.reffy/reffyspec/`.
-- `reffy remote init|status|push|ls|cat`: links, publishes, and inspects a Paseo-backed remote `.reffy/` workspace.
+- `reffy remote init|status|push|ls|cat|snapshot`: links, publishes, and inspects a Paseo-backed remote `.reffy/` workspace.
+- `reffy remote workspace create|get` and `reffy remote project register|list`: control-plane operations against the workspace manager actor.
 - `reffy diagram render`: renders Mermaid diagrams as SVG or ASCII, including spec-aware generation from compatible `spec.md` files.
 
 Output modes:
@@ -67,70 +68,113 @@ reffy diagram render --input .reffy/reffyspec/specs/auth/spec.md --format svg --
 
 ## Remote Sync
 
-Reffy can publish the local `.reffy/` workspace to a Paseo-backed remote actor and inspect it later with native CLI commands.
+Reffy can publish the local `.reffy/` workspace to a Paseo-backed remote workspace and inspect it later with native CLI commands.
+
+The Paseo remote splits into two actor surfaces:
+
+- `reffyWorkspaceManager.v1` is the **control plane**. It owns workspace lifecycle (create / get) and project registration.
+- `reffyRemoteBackend.v2` is the **storage plane**. One actor instance represents one shared `workspace_id` and accepts contributions keyed by `project_id`.
+
+Reffy stores manager identity once per linkage file and the workspace backend identity per `workspace_id`.
 
 The current remote flow is:
 
 1. Reffy reads `project_id` and `workspace_ids` from `.reffy/manifest.json`.
 2. You select one workspace projection to act on. Reffy infers the selection when `workspace_ids` has exactly one entry; otherwise pass `--workspace-id <id>`.
-3. Reffy connects to Paseo using `PASEO_ENDPOINT` or `--endpoint`.
-4. `reffy remote init --provision` creates a pod and a `reffyRemoteBackend.v2` actor for the selected workspace id when needed, then writes local linkage state to `.reffy/state/remote.json`.
-5. `reffy remote push` publishes the full local `.reffy/` tree to the selected projection through `/workspaces/{workspace_id}/...` with `replace_missing=true` by default, scoped to that workspace id.
-6. `reffy remote status|ls|cat` inspects the selected workspace projection using the saved linkage state unless you override it.
+3. Reffy connects to Paseo using `PASEO_ENDPOINT` or `--endpoint` and configured manager identity.
+4. `reffy remote init` resolves (or creates) the workspace through the manager, persists the workspace backend identity, and registers the local `project_id` for that workspace.
+5. `reffy remote push` registers the project if needed (idempotent on 409), then imports the full local `.reffy/` tree through `POST /workspace/projects/{project_id}/import` on the workspace backend actor with `replace_missing=true`.
+6. `reffy remote status|ls|cat|snapshot` inspects the selected workspace projection per project on the workspace backend actor.
 
-One backend actor can serve multiple workspace projections for the same source `project_id`: Reffy stores one target per `workspace_id` in `.reffy/state/remote.json`, and the backend isolates documents and locks by `(workspace_id, path)`.
+### Bearer-token authentication
 
-### Minimal connection requirement
+Every Paseo request from the CLI carries `Authorization: Bearer ${PASEO_TOKEN}`. The token is the only thing that grants access — manager / workspace-backend identifiers in `.reffy/state/remote.json` are inert without it.
 
-For the fresh-provision path, the only required connection value is:
-
-- `PASEO_ENDPOINT`
-
-Example `.env`:
+Required env for any remote command:
 
 ```bash
 PASEO_ENDPOINT="https://your-paseo-endpoint.example"
+PASEO_TOKEN="<bearer token issued by manager provisioning>"
 ```
 
-That is enough for:
+Both must be present; the CLI fails fast and names the missing variable before issuing any network call. Endpoint is **never** persisted to `remote.json`. The token is **never** persisted anywhere by the CLI.
+
+### First-time provisioning
 
 ```bash
-reffy remote init --provision
+PASEO_ENDPOINT="https://your-paseo-endpoint.example" reffy remote init --provision
+```
+
+`--provision` creates a fresh pod and `reffyWorkspaceManager.v1` actor. The manager mints a bearer token and the CLI prints it once with strong "save this now" guidance. Save it to your team secret store immediately — the CLI does not keep a copy.
+
+After provisioning, export it for subsequent commands:
+
+```bash
+export PASEO_TOKEN="<token from init output>"
+reffy remote status
 ```
 
 Optional overrides:
 
-- `PASEO_POD_NAME` if you want to reuse an existing Paseo pod
-- `PASEO_ACTOR_ID` if you want to reuse an existing backend actor
-- `--workspace-id <id>` (or `PASEO_WORKSPACE_ID` for the helper script) when the manifest lists more than one `workspace_ids`
+- `PASEO_MANAGER_POD` and `PASEO_MANAGER_ACTOR` (or `--manager-pod` / `--manager-actor`) to reuse an existing manager actor instead of provisioning one.
+- `--workspace-id <id>` when the manifest lists more than one `workspace_ids`.
+- `--create` or `--resolve` to force-create or force-resolve the workspace through the manager during init. The default is "resolve when present, create when absent."
 
-Reffy does not require separate `REFFY_PROJECT_ID` values for the normal case because source identity comes from `.reffy/manifest.json`.
+### Joining an existing manager from another repo
+
+Drop the team's shared values into the new repo's `.env`:
+
+```bash
+PASEO_ENDPOINT="..."
+PASEO_TOKEN="..."
+PASEO_MANAGER_POD="..."
+PASEO_MANAGER_ACTOR="..."
+```
+
+Then `reffy remote init --workspace-id <id>` resolves the workspace through the manager and registers the local project. No `--provision`, no new token issuance.
 
 ### Saved remote linkage
 
-After `reffy remote init`, Reffy stores the local pointer to the linked backend actor in:
+After `reffy remote init`, Reffy stores manager and workspace-backend identifiers in:
 
 - `.reffy/state/remote.json`
 
-That file maps each selected `workspace_id` to the backend target Reffy should use for that projection:
-
 ```json
 {
-  "version": 2,
+  "version": 4,
   "provider": "paseo",
-  "endpoint": "https://paseo.example",
+  "manager": { "pod_name": "...", "actor_id": "..." },
   "targets": {
-    "my-project": { "pod_name": "...", "actor_id": "...", "last_imported_at": "..." },
-    "portfolio-alpha": { "pod_name": "...", "actor_id": "..." }
+    "my-project": {
+      "workspace_backend": { "pod_name": "...", "actor_id": "..." },
+      "last_imported_at": "..."
+    },
+    "portfolio-alpha": {
+      "workspace_backend": { "pod_name": "...", "actor_id": "..." }
+    }
   }
 }
 ```
 
-Multiple targets can share the same `pod_name` and `actor_id` — the backend addresses each projection separately through `/workspaces/{workspace_id}/...`.
+Each `workspace_id` is its own backend actor. Manager identity is shared across workspaces in this linkage file.
 
-This file is local runtime state. It is not part of the synced remote workspace and is intentionally excluded from `reffy remote push`.
+The file deliberately does **not** contain the Paseo endpoint URL or the bearer token. Both are sourced from environment configuration on every command. Without `PASEO_TOKEN`, the identifiers in this file grant nothing.
 
-The file can also record local sync metadata such as the last successful import timestamp. That metadata is for local diagnostics and does not become part of the remote workspace contract.
+If `workspace_backend` for a workspace is missing or stale, Reffy automatically resolves it through the manager and refreshes the linkage file before continuing.
+
+### Control-plane subcommands
+
+```bash
+reffy remote workspace create <workspace-id> [--label "Pretty name"]
+reffy remote workspace get <workspace-id>
+reffy remote workspace delete <workspace-id> --yes
+reffy remote project register [--workspace-id <id>] [--project-id <id>]
+reffy remote project list [--workspace-id <id>]
+```
+
+`workspace delete` is destructive (it removes the shared workspace and all of its contributions) and requires `--yes` to proceed. The CLI also drops the workspace entry from the local linkage file on success, and treats a `404` from the manager as an idempotent "already gone" outcome.
+
+These talk directly to the manager actor and let you provision or inspect state without re-running `init`.
 
 ### Example flow
 
@@ -141,22 +185,22 @@ reffy remote status
 reffy remote push
 reffy remote ls
 reffy remote cat .reffy/manifest.json
+reffy remote snapshot
 ```
 
-`reffy remote status` is the primary diagnostic command for this flow. It reports:
+`reffy remote status` reports:
 
-- the saved linkage being used for the selected workspace id
+- the saved manager and workspace backend linkage for the selected workspace id
 - the local manifest identity (source `project_id` and selected `workspace_id`)
-- the remote identity returned from v2 (`source.actor_type`, `source.version`, `source.project_id`, `workspace.workspace_id`)
-- remote document counts when reachable
+- the remote workspace identity (`workspace.workspace_id`, `source.actor_type`, `source.version`)
+- remote document counts and registered project counts when available
 
 `reffy remote push` reports:
 
+- whether the project was newly registered or already registered
 - local document count
-- imported count
-- created count
-- updated count
-- deleted count
+- imported / created / updated / deleted counts
+- last imported timestamp
 
 That makes the default prune/import behavior auditable without dropping to direct backend API calls.
 

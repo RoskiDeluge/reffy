@@ -1,10 +1,10 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-04-24T20:42:41.204Z",
+  "updated_at": "2026-05-04T00:46:52.235Z",
   "project_id": "reffy",
   "workspace_ids": [
-    "reffy"
+    "nuveris-v1"
   ],
   "artifacts": [
     {
@@ -314,36 +314,62 @@
       ]
     },
     {
-      "id": "6ce8a6ac-f2f7-4f1d-b5a8-72a369f035eb",
-      "name": "paseo multi workspace refactor",
-      "filename": "paseo-multi-workspace-refactor.md",
-      "kind": "note",
-      "mime_type": "text/markdown",
-      "size_bytes": 9365,
-      "tags": [],
-      "created_at": "2026-04-24T19:22:29.096Z",
-      "updated_at": "2026-04-24T19:22:29.096Z",
-      "related_changes": [
-        "refactor-multi-workspace-membership"
-      ],
-      "derived_outputs": [
-        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/proposal.md",
-        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/tasks.md",
-        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/design.md",
-        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/specs/manifest-identity/spec.md",
-        ".reffy/reffyspec/changes/refactor-multi-workspace-membership/specs/remote-sync-snapshot-publication/spec.md"
-      ]
-    },
-    {
       "id": "0ef89980-1910-4d88-bbf7-1408dbd4c05d",
       "name": "paseo contract reference for reffy",
       "filename": "paseo-contract-reference-for-reffy.md",
       "kind": "note",
       "mime_type": "text/markdown",
-      "size_bytes": 6812,
+      "size_bytes": 6813,
       "tags": [],
       "created_at": "2026-04-24T20:42:41.203Z",
-      "updated_at": "2026-04-24T20:42:41.203Z"
+      "updated_at": "2026-04-24T20:44:20.765Z"
+    },
+    {
+      "id": "d8407f41-01cf-4272-8326-35fd1f9e8772",
+      "name": "project direction pivot change state",
+      "filename": "project-direction-pivot-change-state.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 8392,
+      "tags": [],
+      "created_at": "2026-04-28T21:50:58.606Z",
+      "updated_at": "2026-04-28T21:50:58.606Z"
+    },
+    {
+      "id": "522132d7-4628-41e3-ad97-39e6f3f830fa",
+      "name": "reffy cli v2 paseo reffy backend",
+      "filename": "reffy-cli-v2-paseo-reffy-backend.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 8202,
+      "tags": [],
+      "created_at": "2026-05-03T00:48:27.934Z",
+      "updated_at": "2026-05-04T00:46:52.235Z",
+      "related_changes": [
+        "integrate-workspace-manager-and-backend-v2",
+        "add-bearer-token-auth-for-paseo-linkage"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/design.md",
+        ".reffy/reffyspec/changes/integrate-workspace-manager-and-backend-v2/specs/integrate-workspace-manager-and-backend-v2/spec.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/design.md",
+        ".reffy/reffyspec/changes/add-bearer-token-auth-for-paseo-linkage/specs/bearer-token-auth-for-paseo-linkage/spec.md"
+      ]
+    },
+    {
+      "id": "ddaa95eb-ea12-417c-8e53-6c1909353ca9",
+      "name": "reffy cli workspace creation",
+      "filename": "reffy-cli-workspace-creation.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 2809,
+      "tags": [],
+      "created_at": "2026-05-03T00:48:27.935Z",
+      "updated_at": "2026-05-03T00:48:27.935Z"
     }
   ]
 }

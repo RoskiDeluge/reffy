@@ -12,18 +12,23 @@ import { createPlanScaffold } from "./plan.js";
 import { DEFAULT_PLANNING_RELATIVE_DIR, looksLikePlanningDir, resolveCanonicalPlanningPath } from "./planning-paths.js";
 import { listPlanningChanges, showPlanningChange, validatePlanningChange } from "./plan-runtime.js";
 import {
-  assertRemoteIdentity,
+  assertWorkspaceSummaryIdentity,
   collectWorkspaceDocuments,
   describeRemoteLinkage,
-  ensureRemoteInit,
-  extractWorkspaceIdentity,
-  PaseoRemoteClient,
+  ensureManagerInit,
+  ensureWorkspaceTarget,
+  extractWorkspaceSummaryIdentity,
+  PaseoManagerClient,
+  PaseoWorkspaceBackendClient,
   readRemoteConfig,
+  RemoteHttpError,
+  removeWorkspaceTarget,
   requireWorkspaceIdentity,
   resolveRemoteConfigPath,
   resolveRemoteTarget,
   resolveSelectedWorkspaceId,
   updateRemoteConfigMetadata,
+  upsertWorkspaceTarget,
   validateImportResult,
   type ResolvedRemoteTarget,
 } from "./remote.js";
@@ -386,12 +391,17 @@ interface PlanCliArgs {
 interface RemoteCliArgs {
   repoRoot: string;
   endpoint?: string;
-  podName?: string;
-  actorId?: string;
+  managerPod?: string;
+  managerActor?: string;
   envFile?: string;
   provision: boolean;
   prefix?: string;
   workspaceId?: string;
+  projectId?: string;
+  create: boolean;
+  resolve: boolean;
+  label?: string;
+  yes: boolean;
 }
 
 function getPlanPositionalArgs(argv: string[]): string[] {
@@ -585,18 +595,29 @@ function planUsage(): string {
 function remoteUsage(): string {
   return [
     "Usage:",
-    "  reffy remote init [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--provision] [--env-file PATH]",
-    "  reffy remote status [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
-    "  reffy remote push [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
-    "  reffy remote ls [--repo PATH] [--output text|json] [--workspace-id ID] [--prefix PATH] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
-    "  reffy remote cat <path> [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--pod-name NAME] [--actor-id ID] [--env-file PATH]",
+    "  reffy remote init [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--manager-pod NAME] [--manager-actor ID] [--provision] [--create|--resolve] [--label TEXT] [--env-file PATH]",
+    "  reffy remote status [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
+    "  reffy remote push [--repo PATH] [--output text|json] [--workspace-id ID] [--env-file PATH]",
+    "  reffy remote ls [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--prefix PATH] [--env-file PATH]",
+    "  reffy remote cat <path> [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
+    "  reffy remote snapshot [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
+    "  reffy remote workspace create <workspace-id> [--repo PATH] [--output text|json] [--label TEXT] [--env-file PATH]",
+    "  reffy remote workspace get <workspace-id> [--repo PATH] [--output text|json] [--env-file PATH]",
+    "  reffy remote workspace delete <workspace-id> --yes [--repo PATH] [--output text|json] [--env-file PATH]",
+    "  reffy remote project register [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
+    "  reffy remote project list [--repo PATH] [--output text|json] [--workspace-id ID] [--env-file PATH]",
     "",
     "Options:",
     "  --workspace-id ID Selected workspace projection. Required when the manifest has multiple workspace_ids; otherwise inferred.",
+    "  --project-id ID   Override the local project_id (defaults to manifest.project_id) when reading another contributor's documents or registration.",
     "  --endpoint URL    Paseo base URL. Defaults to saved config or PASEO_ENDPOINT/.env.",
-    "  --pod-name NAME   Paseo pod name. Defaults to saved target for the selected workspace id or PASEO_POD_NAME/.env.",
-    "  --actor-id ID     Paseo actor id. Defaults to saved target for the selected workspace id or PASEO_ACTOR_ID/.env.",
-    "  --provision       Create missing pod/actor during `remote init`.",
+    "  --manager-pod     Paseo pod hosting the workspace manager actor. Defaults to saved config or PASEO_MANAGER_POD/.env.",
+    "  --manager-actor   reffyWorkspaceManager.v1 actor id. Defaults to saved config or PASEO_MANAGER_ACTOR/.env.",
+    "  --provision       During `remote init`, create a fresh pod and manager actor when one is not configured.",
+    "  --create          During `remote init`, force-create the workspace through the manager (recoverable via 409).",
+    "  --resolve         During `remote init`, resolve an existing workspace through the manager and fail if it does not exist.",
+    "  --label TEXT      Optional human-readable workspace label passed to `workspace create`.",
+    "  --yes             Confirm a destructive operation (required for `workspace delete`).",
     "  --prefix PATH     Prefix filter for `remote ls`.",
     "  --env-file PATH   Dotenv file to load before resolving env-backed options. Defaults to .env.",
   ].join("\n");
@@ -776,100 +797,70 @@ function parsePlanArgs(argv: string[]): PlanCliArgs {
   return args;
 }
 
+const REMOTE_VALUE_FLAGS = new Set([
+  "--repo",
+  "--output",
+  "--endpoint",
+  "--manager-pod",
+  "--manager-actor",
+  "--env-file",
+  "--prefix",
+  "--workspace-id",
+  "--project-id",
+  "--label",
+]);
+
+const REMOTE_BOOLEAN_FLAGS = new Set(["--json", "--provision", "--create", "--resolve", "--yes"]);
+
 function parseRemoteArgs(argv: string[]): RemoteCliArgs {
   const repoRoot = parseRepoArg(argv);
   const args: RemoteCliArgs = {
     repoRoot,
     provision: false,
+    create: false,
+    resolve: false,
+    yes: false,
+  };
+
+  const setStr = (flag: string, value: string | undefined): string => {
+    if (!value) throw new Error(`${flag} requires a value`);
+    return value;
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--repo") {
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--repo=")) continue;
+    if (arg === "--repo" || arg === "--output") { i += 1; continue; }
+    if (arg.startsWith("--repo=") || arg.startsWith("--output=")) continue;
     if (arg === "--json") continue;
-    if (arg === "--output") {
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--output=")) continue;
 
-    if (arg === "--endpoint") {
-      const value = argv[i + 1];
-      if (!value) throw new Error("--endpoint requires a value");
-      args.endpoint = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--endpoint=")) {
-      args.endpoint = arg.split("=", 2)[1];
-      continue;
-    }
-    if (arg === "--pod-name") {
-      const value = argv[i + 1];
-      if (!value) throw new Error("--pod-name requires a value");
-      args.podName = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--pod-name=")) {
-      args.podName = arg.split("=", 2)[1];
-      continue;
-    }
-    if (arg === "--actor-id") {
-      const value = argv[i + 1];
-      if (!value) throw new Error("--actor-id requires a value");
-      args.actorId = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--actor-id=")) {
-      args.actorId = arg.split("=", 2)[1];
-      continue;
-    }
-    if (arg === "--env-file") {
-      const value = argv[i + 1];
-      if (!value) throw new Error("--env-file requires a value");
-      args.envFile = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--env-file=")) {
-      args.envFile = arg.split("=", 2)[1];
-      continue;
-    }
-    if (arg === "--prefix") {
-      const value = argv[i + 1];
-      if (!value) throw new Error("--prefix requires a value");
-      args.prefix = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--prefix=")) {
-      args.prefix = arg.split("=", 2)[1];
-      continue;
-    }
-    if (arg === "--workspace-id") {
-      const value = argv[i + 1];
-      if (!value) throw new Error("--workspace-id requires a value");
-      args.workspaceId = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--workspace-id=")) {
-      args.workspaceId = arg.split("=", 2)[1];
-      continue;
-    }
-    if (arg === "--provision") {
-      args.provision = true;
-      continue;
-    }
+    if (arg === "--endpoint") { args.endpoint = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--endpoint=")) { args.endpoint = arg.split("=", 2)[1]; continue; }
+    if (arg === "--manager-pod") { args.managerPod = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--manager-pod=")) { args.managerPod = arg.split("=", 2)[1]; continue; }
+    if (arg === "--manager-actor") { args.managerActor = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--manager-actor=")) { args.managerActor = arg.split("=", 2)[1]; continue; }
+    if (arg === "--env-file") { args.envFile = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--env-file=")) { args.envFile = arg.split("=", 2)[1]; continue; }
+    if (arg === "--prefix") { args.prefix = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--prefix=")) { args.prefix = arg.split("=", 2)[1]; continue; }
+    if (arg === "--workspace-id") { args.workspaceId = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--workspace-id=")) { args.workspaceId = arg.split("=", 2)[1]; continue; }
+    if (arg === "--project-id") { args.projectId = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--project-id=")) { args.projectId = arg.split("=", 2)[1]; continue; }
+    if (arg === "--label") { args.label = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--label=")) { args.label = arg.split("=", 2)[1]; continue; }
+    if (arg === "--provision") { args.provision = true; continue; }
+    if (arg === "--create") { args.create = true; continue; }
+    if (arg === "--resolve") { args.resolve = true; continue; }
+    if (arg === "--yes") { args.yes = true; continue; }
+
     if (arg.startsWith("--")) {
       throw new Error(`Unknown remote option: ${arg}`);
     }
+  }
+
+  if (args.create && args.resolve) {
+    throw new Error("--create and --resolve are mutually exclusive");
   }
 
   return args;
@@ -880,33 +871,9 @@ function getRemotePositionalArgs(argv: string[]): string[] {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (
-      arg === "--repo" ||
-      arg === "--output" ||
-      arg === "--endpoint" ||
-      arg === "--pod-name" ||
-      arg === "--actor-id" ||
-      arg === "--env-file" ||
-      arg === "--prefix" ||
-      arg === "--workspace-id"
-    ) {
-      i += 1;
-      continue;
-    }
-    if (
-      arg.startsWith("--repo=") ||
-      arg.startsWith("--output=") ||
-      arg.startsWith("--endpoint=") ||
-      arg.startsWith("--pod-name=") ||
-      arg.startsWith("--actor-id=") ||
-      arg.startsWith("--env-file=") ||
-      arg.startsWith("--prefix=") ||
-      arg.startsWith("--workspace-id=") ||
-      arg === "--json" ||
-      arg === "--provision"
-    ) {
-      continue;
-    }
+    if (REMOTE_VALUE_FLAGS.has(arg)) { i += 1; continue; }
+    if (Array.from(REMOTE_VALUE_FLAGS).some((flag) => arg.startsWith(`${flag}=`))) continue;
+    if (REMOTE_BOOLEAN_FLAGS.has(arg)) continue;
     if (arg.startsWith("--")) continue;
     positionals.push(arg);
   }
@@ -927,15 +894,15 @@ function printSection(title: string, values: string[]): void {
 
 async function resolveRemoteContext(
   args: RemoteCliArgs,
-  opts: { tolerateLegacyV1Config?: boolean } = {},
+  opts: { tolerateLegacyConfig?: boolean } = {},
 ): Promise<{
   store: ReferencesStore;
   identity: { project_id: string; workspace_id: string };
   workspaceId: string;
+  projectId: string;
   configPath: string;
   savedConfig: Awaited<ReturnType<typeof readRemoteConfig>>;
   resolvedTarget: ResolvedRemoteTarget | null;
-  linkageSource: "saved_config" | "cli_or_env_overrides" | "unconfigured";
   replacedLegacy: boolean;
 }> {
   await loadDotEnvIfPresent(args.repoRoot, args.envFile ?? ".env");
@@ -943,41 +910,300 @@ async function resolveRemoteContext(
   const identityInfo = await store.getWorkspaceIdentity();
   const workspaceId = resolveSelectedWorkspaceId(identityInfo, args.workspaceId);
   const identity = requireWorkspaceIdentity(identityInfo, workspaceId);
+  const projectId = (args.projectId ?? identity.project_id).trim();
+  if (!projectId) {
+    throw new Error("Could not resolve a project id; pass --project-id or define manifest.project_id");
+  }
   let savedConfig: Awaited<ReturnType<typeof readRemoteConfig>> = null;
   let replacedLegacy = false;
   try {
     savedConfig = await readRemoteConfig(args.repoRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (opts.tolerateLegacyV1Config && message.includes("legacy v1 single-target shape")) {
+    if (
+      opts.tolerateLegacyConfig &&
+      (message.includes("legacy v1 single-target shape") ||
+        message.includes("legacy v2 combined-backend shape") ||
+        message.includes("legacy v3 shape"))
+    ) {
       replacedLegacy = true;
     } else {
       throw error;
     }
   }
-  const overrideValues = {
-    endpoint: args.endpoint ?? process.env.PASEO_ENDPOINT,
-    pod_name: args.podName ?? process.env.PASEO_POD_NAME,
-    actor_id: args.actorId ?? process.env.PASEO_ACTOR_ID,
-  };
-  const resolvedTarget = resolveRemoteTarget(savedConfig, workspaceId, overrideValues);
-  const hasOverrides = Boolean(overrideValues.endpoint || overrideValues.pod_name || overrideValues.actor_id);
-  const savedHasTarget = Boolean(savedConfig?.targets?.[workspaceId]);
-  const linkageSource = resolvedTarget
-    ? savedHasTarget && !hasOverrides
-      ? "saved_config"
-      : "cli_or_env_overrides"
-    : "unconfigured";
+  const endpointForResolve = (args.endpoint ?? process.env.PASEO_ENDPOINT ?? "").trim();
+  const resolvedTarget = endpointForResolve
+    ? resolveRemoteTarget(savedConfig, workspaceId, endpointForResolve)
+    : null;
 
   return {
     store,
     identity,
     workspaceId,
+    projectId,
     configPath: resolveRemoteConfigPath(args.repoRoot),
     savedConfig,
     resolvedTarget,
-    linkageSource,
     replacedLegacy,
+  };
+}
+
+function resolvePaseoEndpoint(args: RemoteCliArgs): string {
+  const endpoint = (args.endpoint ?? process.env.PASEO_ENDPOINT ?? "").trim();
+  if (!endpoint) {
+    throw new Error(
+      "PASEO_ENDPOINT is required for remote commands. Add it to your .env (or export it in your shell) and retry. The endpoint is no longer persisted in .reffy/state/remote.json.",
+    );
+  }
+  return endpoint;
+}
+
+function resolvePaseoToken(opts: { required: boolean }): string | undefined {
+  const token = process.env.PASEO_TOKEN?.trim() || undefined;
+  if (opts.required && !token) {
+    throw new Error(
+      "PASEO_TOKEN is required for remote commands. It is the bearer token returned by `reffy remote init --provision`; copy it from your team secret store into your .env (or export it). The CLI never persists this token to disk.",
+    );
+  }
+  return token;
+}
+
+function findRemoteHttpError(error: unknown): RemoteHttpError | null {
+  if (error instanceof RemoteHttpError) return error;
+  if (error instanceof Error && error.cause) return findRemoteHttpError(error.cause);
+  return null;
+}
+
+function decorateRemoteError(error: unknown, fallback: string): string {
+  const httpError = findRemoteHttpError(error);
+  if (!httpError) return fallback;
+
+  // Inspect the request URL to decide which hint applies. The path shape
+  // unambiguously tells us whether the call was a manager workspace lookup,
+  // a manager project registration, or a workspace-backend per-project read.
+  let pathname = "";
+  try {
+    pathname = new URL(httpError.url).pathname;
+  } catch {
+    pathname = httpError.url;
+  }
+
+  const projectRouteMatch = /\/projects\/[^/]+(?:\/|$)/.test(pathname);
+  const workspacesRouteMatch = /\/workspaces\/[^/]+(?:\/|$)/.test(pathname);
+  const backendProjectMatch = /\/workspace\/projects\/[^/]+/.test(pathname);
+
+  if (httpError.status === 401) {
+    return `${fallback}\nAuthorization rejected by Paseo. Check that PASEO_TOKEN matches the current manager token in your team secret store, and that it is exported into the shell running reffy.`;
+  }
+
+  if (httpError.status === 404) {
+    if (backendProjectMatch || (projectRouteMatch && workspacesRouteMatch)) {
+      return `${fallback}\nThe project is not registered for this workspace. Run \`reffy remote project register\` (or \`reffy remote init\`) to register, then retry.`;
+    }
+    if (workspacesRouteMatch) {
+      return `${fallback}\nThe workspace was not found on the manager. Run \`reffy remote workspace create <workspace-id>\` to provision it, then retry.`;
+    }
+  }
+
+  return fallback;
+}
+
+async function handleRemoteWorkspaceSubcommand(
+  parsed: RemoteCliArgs,
+  remoteArgs: string[],
+  output: "text" | "json",
+  reportError: (subcmd: string, error: unknown) => number,
+): Promise<number> {
+  const positionals = getRemotePositionalArgs(remoteArgs);
+  // positionals[0] is the workspace subcommand verb (create|get); positionals[1] is the workspace id
+  const verb = positionals[0];
+  const workspaceIdArg = positionals[1];
+  if (!verb || (verb !== "create" && verb !== "get" && verb !== "delete")) {
+    console.error("reffy remote workspace requires a subcommand: create | get | delete");
+    console.error(remoteUsage());
+    return 1;
+  }
+  if (!workspaceIdArg) {
+    console.error(`reffy remote workspace ${verb} requires a workspace id`);
+    return 1;
+  }
+
+  try {
+    await loadDotEnvIfPresent(parsed.repoRoot, parsed.envFile ?? ".env");
+    const endpoint = resolvePaseoEndpoint(parsed);
+    const token = resolvePaseoToken({ required: true }) as string;
+    const savedConfig = await readRemoteConfig(parsed.repoRoot);
+    if (!savedConfig) {
+      throw new Error(
+        "Remote linkage is not initialized. Run `reffy remote init --provision` (or with --manager-pod/--manager-actor) first.",
+      );
+    }
+
+    if (verb === "delete") {
+      if (!parsed.yes) {
+        throw new Error(
+          `Refusing to delete workspace "${workspaceIdArg}" without --yes. Workspace deletion is destructive: it removes the shared workspace and all contributions stored under it on the manager. Re-run with --yes to confirm.`,
+        );
+      }
+      const manager = new PaseoManagerClient(endpoint, savedConfig.manager, token);
+      const result = await manager.deleteWorkspace(workspaceIdArg);
+      const removal = await removeWorkspaceTarget(parsed.repoRoot, savedConfig, workspaceIdArg);
+      const payload = {
+        status: "ok",
+        command: "remote",
+        subcommand: "workspace delete",
+        workspace_id: workspaceIdArg,
+        manager: savedConfig.manager,
+        already_absent: result.alreadyAbsent,
+        local_target_removed: removal.existed,
+        configured_workspace_ids: Object.keys(removal.config.targets).sort(),
+      };
+      if (output === "json") {
+        printResult(output, payload);
+      } else {
+        console.log(`Workspace delete: ${result.alreadyAbsent ? "already_absent" : "deleted"}`);
+        console.log(`Workspace id: ${workspaceIdArg}`);
+        console.log(`Local target removed: ${removal.existed ? "yes" : "no"}`);
+        console.log(`Configured workspace ids: ${payload.configured_workspace_ids.join(", ") || "(none)"}`);
+      }
+      return 0;
+    }
+
+    const result = await ensureWorkspaceTarget(parsed.repoRoot, savedConfig, {
+      workspaceId: workspaceIdArg,
+      mode: verb === "create" ? "create" : "resolve",
+      endpoint,
+      token,
+      metadata: parsed.label ? { label: parsed.label } : undefined,
+    });
+
+    const payload = {
+      status: "ok",
+      command: "remote",
+      subcommand: `workspace ${verb}`,
+      workspace_id: workspaceIdArg,
+      manager: result.config.manager,
+      workspace_backend: result.workspace_backend,
+      outcome: result.outcome,
+    };
+    if (output === "json") {
+      printResult(output, payload);
+    } else {
+      console.log(`Workspace ${verb}: ${result.outcome}`);
+      console.log(`Workspace id: ${workspaceIdArg}`);
+      console.log(`Workspace backend: ${result.workspace_backend.pod_name}/${result.workspace_backend.actor_id}`);
+    }
+    return 0;
+  } catch (error) {
+    return reportError(`workspace ${verb}`, error);
+  }
+}
+
+async function handleRemoteProjectSubcommand(
+  parsed: RemoteCliArgs,
+  remoteArgs: string[],
+  output: "text" | "json",
+  reportError: (subcmd: string, error: unknown) => number,
+): Promise<number> {
+  const positionals = getRemotePositionalArgs(remoteArgs);
+  const verb = positionals[0];
+  if (!verb || (verb !== "register" && verb !== "list")) {
+    console.error("reffy remote project requires a subcommand: register | list");
+    console.error(remoteUsage());
+    return 1;
+  }
+
+  try {
+    const context = await resolveRemoteContext(parsed);
+    if (!context.savedConfig) {
+      throw new Error(
+        "Remote linkage is not initialized. Run `reffy remote init --provision` (or with --manager-pod/--manager-actor) first.",
+      );
+    }
+    const endpoint = resolvePaseoEndpoint(parsed);
+    const token = resolvePaseoToken({ required: true }) as string;
+    const manager = new PaseoManagerClient(endpoint, context.savedConfig.manager, token);
+
+    if (verb === "register") {
+      const registration = await manager.registerProject(context.workspaceId, context.projectId);
+      const payload = {
+        status: "ok",
+        command: "remote",
+        subcommand: "project register",
+        workspace_id: context.workspaceId,
+        project_id: context.projectId,
+        registration: registration.alreadyRegistered ? "already_registered" : "registered",
+      };
+      if (output === "json") {
+        printResult(output, payload);
+      } else {
+        console.log(`Project registration: ${payload.registration}`);
+        console.log(`Workspace id: ${payload.workspace_id}`);
+        console.log(`Project id: ${payload.project_id}`);
+      }
+      return 0;
+    }
+
+    // list
+    const list = await manager.listProjects(context.workspaceId);
+    const projects = (list.projects ?? [])
+      .map((p) => (typeof p.project_id === "string" ? p.project_id : ""))
+      .filter(Boolean)
+      .sort();
+    const payload = {
+      status: "ok",
+      command: "remote",
+      subcommand: "project list",
+      workspace_id: context.workspaceId,
+      projects,
+    };
+    if (output === "json") {
+      printResult(output, payload);
+    } else if (projects.length === 0) {
+      console.log("(no projects registered)");
+    } else {
+      for (const id of projects) console.log(id);
+    }
+    return 0;
+  } catch (error) {
+    return reportError(`project ${verb}`, error);
+  }
+}
+
+async function ensureResolvedTarget(
+  args: RemoteCliArgs,
+  context: {
+    savedConfig: Awaited<ReturnType<typeof readRemoteConfig>>;
+    workspaceId: string;
+    resolvedTarget: ResolvedRemoteTarget | null;
+    configPath: string;
+  },
+  runtime: { endpoint: string; token: string },
+): Promise<{ target: ResolvedRemoteTarget; recovered: boolean }> {
+  if (context.resolvedTarget) {
+    return { target: context.resolvedTarget, recovered: false };
+  }
+  if (!context.savedConfig) {
+    throw new Error(
+      `Remote linkage is not configured. Run \`reffy remote init --workspace-id ${context.workspaceId}\` to configure manager identity and resolve the workspace backend. Expected config path: ${context.configPath}`,
+    );
+  }
+  // Manager identity is configured but workspace_backend identity is missing for this workspace.
+  // Recover by resolving through the manager.
+  const result = await ensureWorkspaceTarget(args.repoRoot, context.savedConfig, {
+    workspaceId: context.workspaceId,
+    mode: "resolve",
+    endpoint: runtime.endpoint,
+    token: runtime.token,
+  });
+  return {
+    target: {
+      endpoint: runtime.endpoint,
+      manager: result.config.manager,
+      workspace_backend: result.workspace_backend,
+      last_imported_at: result.config.targets[context.workspaceId]?.last_imported_at,
+    },
+    recovered: true,
   };
 }
 
@@ -1047,112 +1273,181 @@ async function main(): Promise<number> {
     const output = parseOutputMode(remoteArgs);
     const parsed = parseRemoteArgs(remoteArgs);
 
-    try {
-      if (subcommand === "init") {
-        const { identity, workspaceId, configPath, savedConfig, replacedLegacy } = await resolveRemoteContext(parsed, { tolerateLegacyV1Config: true });
-        const endpoint = parsed.endpoint ?? process.env.PASEO_ENDPOINT ?? savedConfig?.endpoint;
-        if (!endpoint) {
-          throw new Error("Remote init requires --endpoint or PASEO_ENDPOINT (optionally loaded from .env)");
-        }
+    const reportError = (subcmd: string, error: unknown): number => {
+      const message = error instanceof Error ? error.message : String(error);
+      const decorated = decorateRemoteError(error, message);
+      if (output === "json") {
+        printResult(output, { status: "error", command: "remote", subcommand: subcmd, error: decorated });
+      } else {
+        console.error(decorated);
+      }
+      return 1;
+    };
 
-        const result = await ensureRemoteInit(parsed.repoRoot, {
+    try {
+      if (subcommand === "workspace") {
+        return await handleRemoteWorkspaceSubcommand(parsed, remoteArgs, output, reportError);
+      }
+      if (subcommand === "project") {
+        return await handleRemoteProjectSubcommand(parsed, remoteArgs, output, reportError);
+      }
+      if (subcommand === "init") {
+        const { identity, workspaceId, projectId, configPath, savedConfig, replacedLegacy } =
+          await resolveRemoteContext(parsed, { tolerateLegacyConfig: true });
+        const endpoint = resolvePaseoEndpoint(parsed);
+
+        // Token is required up front unless we're going to create a fresh manager actor
+        // during this run (which is what mints it). That happens when no manager actor id
+        // is configured anywhere and --provision is set.
+        const willMintToken =
+          parsed.provision &&
+          !(parsed.managerActor ?? process.env.PASEO_MANAGER_ACTOR ?? savedConfig?.manager.actor_id);
+        const tokenFromEnv = resolvePaseoToken({ required: !willMintToken });
+
+        const managerInit = await ensureManagerInit(parsed.repoRoot, {
           endpoint,
-          podName: parsed.podName ?? process.env.PASEO_POD_NAME,
-          actorId: parsed.actorId ?? process.env.PASEO_ACTOR_ID,
+          managerPodName: parsed.managerPod ?? process.env.PASEO_MANAGER_POD,
+          managerActorId: parsed.managerActor ?? process.env.PASEO_MANAGER_ACTOR,
           provision: parsed.provision,
-          identity,
           existingConfig: savedConfig,
         });
+
+        const effectiveToken = managerInit.manager_auth_token ?? tokenFromEnv;
+        if (!effectiveToken) {
+          throw new Error(
+            "Internal error: no bearer token available after manager init. Either --provision should have minted one or PASEO_TOKEN should have been required up front.",
+          );
+        }
+
+        const targetMode: "create" | "resolve" | "auto" = parsed.create
+          ? "create"
+          : parsed.resolve
+            ? "resolve"
+            : "auto";
+
+        const targetResult = await ensureWorkspaceTarget(parsed.repoRoot, managerInit.config, {
+          workspaceId,
+          mode: targetMode,
+          endpoint,
+          token: effectiveToken,
+          metadata: parsed.label ? { label: parsed.label } : undefined,
+        });
+
+        const manager = new PaseoManagerClient(endpoint, targetResult.config.manager, effectiveToken);
+        const registration = await manager.registerProject(workspaceId, projectId);
+
         const gitignore = await ensureGitignoreEntries(parsed.repoRoot, [".reffy/state/"]);
+        const tokenJustIssued = managerInit.manager_auth_token != null;
         const payload = {
           status: "ok",
           command: "remote",
           subcommand: "init",
-          provider: result.config.provider,
+          provider: targetResult.config.provider,
           config_path: configPath,
-          endpoint: result.config.endpoint,
+          endpoint,
           workspace_id: workspaceId,
-          pod_name: result.target.pod_name,
-          actor_id: result.target.actor_id,
-          created_pod: result.created_pod,
-          created_actor: result.created_actor,
-          project_id: identity.project_id,
-          linkage_mode: result.created_pod || result.created_actor ? "provisioned" : "existing",
-          configured_workspace_ids: Object.keys(result.config.targets).sort(),
-          replaced_legacy_v1_config: replacedLegacy,
+          project_id: projectId,
+          manager: targetResult.config.manager,
+          workspace_backend: targetResult.workspace_backend,
+          created_pod: managerInit.created_pod,
+          created_manager_actor: managerInit.created_actor,
+          workspace_outcome: targetResult.outcome,
+          project_registration: registration.alreadyRegistered ? "already_registered" : "registered",
+          configured_workspace_ids: Object.keys(targetResult.config.targets).sort(),
+          replaced_legacy_config: replacedLegacy,
           gitignore_path: gitignore.path,
           gitignore_added: gitignore.added,
+          // One-time issuance: present in this response only; never persisted to disk.
+          manager_token: managerInit.manager_auth_token ?? null,
+          manager_token_persisted: false,
         };
 
         if (output === "json") {
           printResult(output, payload);
         } else {
           if (replacedLegacy) {
-            console.log("Replacing legacy v1 remote linkage with v2 target map");
+            console.log("Replacing legacy remote linkage with v4 (no endpoint, bearer-token auth)");
           }
           console.log("Remote linkage ready");
           console.log(`Config: ${payload.config_path}`);
-          console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Endpoint: ${payload.endpoint} (sourced from env, not persisted)`);
+          console.log(`Manager: ${payload.manager.pod_name}/${payload.manager.actor_id}`);
           console.log(`Workspace id: ${payload.workspace_id}`);
-          console.log(`Pod: ${payload.pod_name}`);
-          console.log(`Actor: ${payload.actor_id}`);
+          console.log(`Workspace backend: ${payload.workspace_backend.pod_name}/${payload.workspace_backend.actor_id}`);
+          console.log(`Workspace outcome: ${payload.workspace_outcome}`);
           console.log(`Project identity: ${payload.project_id}`);
+          console.log(`Project registration: ${payload.project_registration}`);
           console.log(`Created pod: ${payload.created_pod ? "yes" : "no"}`);
-          console.log(`Created actor: ${payload.created_actor ? "yes" : "no"}`);
-          console.log(`Linkage mode: ${payload.linkage_mode}`);
+          console.log(`Created manager actor: ${payload.created_manager_actor ? "yes" : "no"}`);
           console.log(`Configured workspace ids: ${payload.configured_workspace_ids.join(", ")}`);
           if (payload.gitignore_added.length > 0) {
             console.log(`Updated .gitignore: ${payload.gitignore_added.join(", ")}`);
+          }
+          if (tokenJustIssued && payload.manager_token) {
+            console.log("");
+            console.log("=================== MANAGER BEARER TOKEN ===================");
+            console.log("Save this now. It will not be shown again and is not stored on disk.");
+            console.log("Add it to your team secret store and export PASEO_TOKEN before");
+            console.log("running any further reffy remote commands in this or any other repo.");
+            console.log("");
+            console.log(`  ${payload.manager_token}`);
+            console.log("============================================================");
           }
         }
         return 0;
       }
 
       const context = await resolveRemoteContext(parsed);
-      if (!context.resolvedTarget) {
-        throw new Error(
-          `Remote linkage is not configured for workspace_id "${context.workspaceId}". Run \`reffy remote init --workspace-id ${context.workspaceId}\` or provide endpoint, pod name, and actor id. Expected config path: ${context.configPath}`,
-        );
-      }
-
-      const client = new PaseoRemoteClient(context.resolvedTarget);
+      const endpoint = resolvePaseoEndpoint(parsed);
+      const token = resolvePaseoToken({ required: true }) as string;
+      const { target: resolvedTarget, recovered } = await ensureResolvedTarget(parsed, context, {
+        endpoint,
+        token,
+      });
+      const backendClient = new PaseoWorkspaceBackendClient(
+        resolvedTarget.endpoint,
+        resolvedTarget.workspace_backend,
+        token,
+      );
+      const managerClient = new PaseoManagerClient(resolvedTarget.endpoint, resolvedTarget.manager, token);
       const linkageLabel = describeRemoteLinkage({
-        endpoint: context.resolvedTarget.endpoint,
-        pod_name: context.resolvedTarget.pod_name,
-        actor_id: context.resolvedTarget.actor_id,
+        endpoint: resolvedTarget.endpoint,
+        manager: resolvedTarget.manager,
+        workspace_backend: resolvedTarget.workspace_backend,
         workspace_id: context.workspaceId,
       });
 
       if (subcommand === "status") {
         let workspace;
         try {
-          workspace = await client.getWorkspace(context.workspaceId);
+          workspace = await backendClient.getWorkspace();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Remote status failed using ${linkageLabel}: ${message}`);
+          throw new Error(`Remote status failed using ${linkageLabel}: ${message}`, { cause: error });
         }
-        assertRemoteIdentity(workspace, context.identity);
-        const remoteIdentity = extractWorkspaceIdentity(workspace);
+        assertWorkspaceSummaryIdentity(workspace, context.workspaceId);
+        const summaryIdentity = extractWorkspaceSummaryIdentity(workspace);
         const payload = {
           status: "ok",
           command: "remote",
           subcommand: "status",
           config_path: context.configPath,
           provider: "paseo",
-          endpoint: context.resolvedTarget.endpoint,
+          endpoint: resolvedTarget.endpoint,
           workspace_id: context.workspaceId,
-          pod_name: context.resolvedTarget.pod_name,
-          actor_id: context.resolvedTarget.actor_id,
-          linkage_source: context.linkageSource,
+          project_id: context.projectId,
+          manager: resolvedTarget.manager,
+          workspace_backend: resolvedTarget.workspace_backend,
+          recovered_workspace_backend: recovered,
           local_identity: context.identity,
           remote_identity: {
-            project_id: remoteIdentity.project_id,
-            workspace_id: remoteIdentity.workspace_id,
-            actor_type: remoteIdentity.actor_type,
-            backend_version: remoteIdentity.backend_version,
+            workspace_id: summaryIdentity.workspace_id,
+            actor_type: summaryIdentity.actor_type,
+            backend_version: summaryIdentity.backend_version,
           },
-          document_count: remoteIdentity.document_count,
-          last_imported_at: context.resolvedTarget.last_imported_at ?? null,
+          document_count: summaryIdentity.document_count,
+          registered_project_count: summaryIdentity.registered_project_count,
+          last_imported_at: resolvedTarget.last_imported_at ?? null,
           workspace,
         };
 
@@ -1162,15 +1457,16 @@ async function main(): Promise<number> {
           console.log("Remote workspace reachable");
           console.log(`Config: ${payload.config_path}`);
           console.log(`Endpoint: ${payload.endpoint}`);
+          console.log(`Manager: ${payload.manager.pod_name}/${payload.manager.actor_id}`);
           console.log(`Workspace id: ${payload.workspace_id}`);
-          console.log(`Pod: ${payload.pod_name}`);
-          console.log(`Actor: ${payload.actor_id}`);
-          console.log(`Linkage source: ${payload.linkage_source}`);
+          console.log(`Workspace backend: ${payload.workspace_backend.pod_name}/${payload.workspace_backend.actor_id}`);
+          if (recovered) console.log("Recovered workspace backend identity through the manager");
           console.log(`Local identity: ${payload.local_identity.project_id}/${payload.local_identity.workspace_id}`);
           console.log(
-            `Remote identity: ${String(payload.remote_identity.project_id)}/${String(payload.remote_identity.workspace_id)} (${String(payload.remote_identity.actor_type)} ${String(payload.remote_identity.backend_version)})`,
+            `Remote identity: workspace=${String(payload.remote_identity.workspace_id)} (${String(payload.remote_identity.actor_type)} ${String(payload.remote_identity.backend_version)})`,
           );
           console.log(`Remote document count: ${String(payload.document_count ?? "unknown")}`);
+          console.log(`Registered projects: ${String(payload.registered_project_count ?? "unknown")}`);
           console.log(`Last imported at: ${String(payload.last_imported_at ?? "never")}`);
         }
         return 0;
@@ -1178,37 +1474,41 @@ async function main(): Promise<number> {
 
       if (subcommand === "push") {
         const documents = await collectWorkspaceDocuments(parsed.repoRoot);
+        const registration = await managerClient.registerProject(context.workspaceId, context.projectId);
+
         let importResult;
         try {
           importResult = validateImportResult(
-            await client.importWorkspace(context.workspaceId, documents, true),
+            await backendClient.importProject(context.projectId, documents, true),
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Remote push failed using ${linkageLabel}: ${message}`);
+          throw new Error(`Remote push failed using ${linkageLabel}: ${message}`, { cause: error });
         }
         let workspace;
         try {
-          workspace = await client.getWorkspace(context.workspaceId);
+          workspace = await backendClient.getWorkspace();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Remote push could not verify remote state using ${linkageLabel}: ${message}`);
+          throw new Error(`Remote push could not verify remote state using ${linkageLabel}: ${message}`, { cause: error });
         }
-        assertRemoteIdentity(workspace, context.identity);
+        assertWorkspaceSummaryIdentity(workspace, context.workspaceId);
         const importedAt = new Date().toISOString();
         await updateRemoteConfigMetadata(parsed.repoRoot, context.workspaceId, {
           last_imported_at: importedAt,
         });
+        const summary = extractWorkspaceSummaryIdentity(workspace);
         const payload = {
           status: "ok",
           command: "remote",
           subcommand: "push",
-          endpoint: context.resolvedTarget.endpoint,
+          endpoint: resolvedTarget.endpoint,
           workspace_id: context.workspaceId,
-          pod_name: context.resolvedTarget.pod_name,
-          actor_id: context.resolvedTarget.actor_id,
-          linkage_source: context.linkageSource,
-          project_id: context.identity.project_id,
+          project_id: context.projectId,
+          manager: resolvedTarget.manager,
+          workspace_backend: resolvedTarget.workspace_backend,
+          recovered_workspace_backend: recovered,
+          project_registration: registration.alreadyRegistered ? "already_registered" : "registered",
           local_document_count: documents.length,
           imported: importResult.imported,
           created: importResult.created,
@@ -1216,7 +1516,7 @@ async function main(): Promise<number> {
           deleted: importResult.deleted,
           replace_missing: true,
           last_imported_at: importedAt,
-          remote_document_count: extractWorkspaceIdentity(workspace).document_count,
+          remote_document_count: summary.document_count,
         };
 
         if (output === "json") {
@@ -1225,9 +1525,10 @@ async function main(): Promise<number> {
           console.log("Remote push complete");
           console.log(`Endpoint: ${payload.endpoint}`);
           console.log(`Workspace id: ${payload.workspace_id}`);
-          console.log(`Pod: ${payload.pod_name}`);
-          console.log(`Actor: ${payload.actor_id}`);
-          console.log(`Linkage source: ${payload.linkage_source}`);
+          console.log(`Project id: ${payload.project_id}`);
+          console.log(`Project registration: ${payload.project_registration}`);
+          console.log(`Workspace backend: ${payload.workspace_backend.pod_name}/${payload.workspace_backend.actor_id}`);
+          if (recovered) console.log("Recovered workspace backend identity through the manager");
           console.log("Mode: remote reflects local (replace_missing=true)");
           console.log(`Local document count: ${String(payload.local_document_count)}`);
           console.log(`Imported: ${String(payload.imported)}`);
@@ -1241,14 +1542,14 @@ async function main(): Promise<number> {
       }
 
       if (subcommand === "ls") {
-        let snapshot;
+        let listing;
         try {
-          snapshot = await client.getSnapshot(context.workspaceId, parsed.prefix);
+          listing = await backendClient.listProjectDocuments(context.projectId, { prefix: parsed.prefix });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Remote ls failed using ${linkageLabel}: ${message}`);
+          throw new Error(`Remote ls failed using ${linkageLabel}: ${message}`, { cause: error });
         }
-        const paths = (snapshot.documents ?? [])
+        const paths = (listing.documents ?? [])
           .map((document) => (typeof document.path === "string" ? document.path : ""))
           .filter(Boolean)
           .sort();
@@ -1256,11 +1557,10 @@ async function main(): Promise<number> {
           status: "ok",
           command: "remote",
           subcommand: "ls",
-          endpoint: context.resolvedTarget.endpoint,
+          endpoint: resolvedTarget.endpoint,
           workspace_id: context.workspaceId,
-          pod_name: context.resolvedTarget.pod_name,
-          actor_id: context.resolvedTarget.actor_id,
-          linkage_source: context.linkageSource,
+          project_id: context.projectId,
+          workspace_backend: resolvedTarget.workspace_backend,
           prefix: parsed.prefix ?? null,
           paths,
         };
@@ -1287,10 +1587,10 @@ async function main(): Promise<number> {
         }
         let document;
         try {
-          document = await client.getDocument(context.workspaceId, documentPath);
+          document = await backendClient.getProjectDocument(context.projectId, documentPath);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Remote cat failed using ${linkageLabel}: ${message}`);
+          throw new Error(`Remote cat failed using ${linkageLabel}: ${message}`, { cause: error });
         }
         if (!document.document) {
           throw new Error(`Remote document not found using ${linkageLabel}: ${documentPath}`);
@@ -1299,11 +1599,10 @@ async function main(): Promise<number> {
           status: "ok",
           command: "remote",
           subcommand: "cat",
-          endpoint: context.resolvedTarget.endpoint,
+          endpoint: resolvedTarget.endpoint,
           workspace_id: context.workspaceId,
-          pod_name: context.resolvedTarget.pod_name,
-          actor_id: context.resolvedTarget.actor_id,
-          linkage_source: context.linkageSource,
+          project_id: context.projectId,
+          workspace_backend: resolvedTarget.workspace_backend,
           document: document.document,
         };
 
@@ -1319,22 +1618,42 @@ async function main(): Promise<number> {
         return 0;
       }
 
+      if (subcommand === "snapshot") {
+        let snapshot;
+        try {
+          snapshot = await backendClient.getProjectSnapshot(context.projectId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`Remote snapshot failed using ${linkageLabel}: ${message}`, { cause: error });
+        }
+        const payload = {
+          status: "ok",
+          command: "remote",
+          subcommand: "snapshot",
+          endpoint: resolvedTarget.endpoint,
+          workspace_id: context.workspaceId,
+          project_id: context.projectId,
+          workspace_backend: resolvedTarget.workspace_backend,
+          snapshot,
+        };
+        if (output === "json") {
+          printResult(output, payload);
+        } else {
+          const docs = (snapshot.documents ?? []).map((d) => (typeof d.path === "string" ? d.path : "")).filter(Boolean);
+          console.log(`Project snapshot for ${context.projectId} on workspace ${context.workspaceId}`);
+          console.log(`Documents: ${String(docs.length)}`);
+          for (const entry of docs.sort()) {
+            console.log(`- ${entry}`);
+          }
+        }
+        return 0;
+      }
+
       console.error(`Unknown remote subcommand: ${subcommand}`);
       console.error(remoteUsage());
       return 1;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (output === "json") {
-        printResult(output, {
-          status: "error",
-          command: "remote",
-          subcommand,
-          error: message,
-        });
-      } else {
-        console.error(message);
-      }
-      return 1;
+      return reportError(subcommand, error);
     }
   }
 
