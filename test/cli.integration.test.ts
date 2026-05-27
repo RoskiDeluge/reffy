@@ -872,6 +872,56 @@ describe("cli plan create", () => {
     expect(design).toContain("Planning notes and generated changes drift apart too easily.");
     expect(design).toContain("Should we surface linked outputs in list/show views later?");
   });
+
+  it("handles artifacts whose headings normalize to Object prototype keys", async () => {
+    const repo = await createTempRepo();
+    await addArtifact(repo, {
+      filename: "offender.md",
+      content: [
+        "# Offender",
+        "",
+        "## Problem",
+        "Planning generation should survive artifact headings like constructor.",
+        "",
+        "## Constructor",
+        "- This heading used to crash section collection.",
+        "- It should now behave like ordinary artifact content.",
+      ].join("\n"),
+    });
+    await addArtifact(repo, {
+      filename: "solution.md",
+      content: [
+        "# Solution",
+        "",
+        "## Proposed Feature",
+        "- Keep plan creation stable across all indexed artifacts",
+        "",
+        "## Acceptance Criteria",
+        "- plan create succeeds with constructor headings present",
+      ].join("\n"),
+    });
+
+    const result = await runCli(
+      ["plan", "create", "--repo", repo.repoRoot, "--change-id", "fix-prototype-collision", "--output", "json"],
+    );
+    expect(result.code).toBe(0);
+
+    const parsed = JSON.parse(result.stdout) as {
+      selected_artifacts: string[];
+      written_files: string[];
+    };
+    expect(parsed.selected_artifacts).toEqual(["offender.md", "solution.md"]);
+    expect(parsed.written_files).toContain(".reffy/reffyspec/changes/fix-prototype-collision/proposal.md");
+
+    const proposal = await readFile(
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "fix-prototype-collision", "proposal.md"),
+      "utf8",
+    );
+    expect(proposal).toContain("Planning generation should survive artifact headings like constructor.");
+    expect(proposal).toContain("Keep plan creation stable across all indexed artifacts");
+    expect(proposal).toContain("offender.md");
+    expect(proposal).toContain("solution.md");
+  });
 });
 
 describe("cli plan validate/list/show", () => {

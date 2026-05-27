@@ -143,7 +143,7 @@ function normalizeHeading(value: string): string {
 }
 
 function extractMarkdownSections(content: string): Record<string, string[]> {
-  const sections: Record<string, string[]> = {};
+  const sections = Object.create(null) as Record<string, string[]>;
   let current = "root";
   sections[current] = [];
 
