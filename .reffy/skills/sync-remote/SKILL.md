@@ -13,8 +13,13 @@ Use this to link, publish, or inspect the shared remote workspace projection.
 - `PASEO_ENDPOINT` — the Paseo endpoint URL (never persisted).
 - `PASEO_TOKEN` — the bearer token (never persisted by the CLI).
 
+Provide them either by exporting them in your shell or by placing them in a
+`.env` file at the repo root — every `reffy remote` command auto-loads `.env`
+(use `--env-file PATH` to point at a different file). Exported shell vars take
+precedence over `.env`.
+
 ## Steps
-1. Ensure both env vars are set; the CLI fails fast and names a missing one.
+1. Ensure both values are available via the shell or `.env`; the CLI fails fast and names a missing one.
 2. First time: `reffy remote init --provision` to create the workspace and mint a token. Save the token immediately.
 3. `reffy remote status` to confirm linkage and identity.
 4. `reffy remote push` to import the full local `.reffy/` tree.
