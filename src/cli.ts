@@ -33,6 +33,13 @@ import {
   type ResolvedRemoteTarget,
 } from "./remote.js";
 import { DEFAULT_REFS_DIRNAME, detectWorkspaceState, looksLikeRefsDir } from "./refs-paths.js";
+import {
+  createSkill,
+  discoverSkills,
+  findSkill,
+  scaffoldManagedSkills,
+  validateSkills,
+} from "./skills.js";
 import { prepareCanonicalPlanningLayout } from "./planning-workspace.js";
 import { ReferencesStore } from "./storage.js";
 import { listSpecs, showSpec } from "./spec-runtime.js";
@@ -72,6 +79,8 @@ Use \`@/${refsDirName}/AGENTS.md\` to learn:
 - How Reffy owns the runtime while preserving ReffySpec planning files
 - How to store and consume ideation context in \`${refsDirName}/\`
 
+Before performing a Reffy workflow, check \`${refsDirName}/skills/\` (or run \`reffy skill list\`) and follow the matching skill.
+
 Keep this managed block so \`reffy init\` can refresh the instructions.
 
 <!-- REFFY:END -->`;
@@ -110,6 +119,7 @@ These instructions are for AI assistants working in this project.
 - Add/update exploratory artifacts and keep them concise.
 - Run \`reffy reindex\` and \`reffy validate\` after artifact changes.
 - Use \`reffy summarize --output json\` and \`reffy plan create\` to turn artifact context into planning scaffolds.
+- Before performing a Reffy workflow, check \`${refsDirName}/skills/\` (or run \`reffy skill list\`) and follow the matching skill.
 
 ## When To Use Reffy
 
@@ -484,6 +494,7 @@ async function runSetupCommand(
   const workspace = await prepareCanonicalWorkspace(repoRoot);
   const planning = await prepareCanonicalPlanningLayout(repoRoot);
   const agents = await initAgents(repoRoot);
+  const skills = await scaffoldManagedSkills(repoRoot);
   const store = new ReferencesStore(repoRoot);
   const reindex = await store.reindexArtifacts();
   const payload = {
@@ -496,6 +507,7 @@ async function runSetupCommand(
     migrated_planning_layout: planning.migrated,
     created_planning_layout: planning.created,
     ...agents,
+    skills,
     refs_dir: store.refsDir,
     manifest_path: store.manifestPath,
     reindex,
@@ -516,6 +528,7 @@ async function runSetupCommand(
   console.log(`Updated ${agents.root_agents_path}`);
   console.log(`Updated ${agents.reffy_agents_path}`);
   console.log(`Updated ${agents.reffyspec_agents_path}`);
+  console.log(`Skills: ${String(skills.written_skills.length)} managed (${skills.preserved_unmanaged.length} unmanaged preserved)`);
   console.log(`Reindex: added=${String(reindex.added)} removed=${String(reindex.removed)} total=${String(reindex.total)}`);
   if (shouldPrintBootstrapOnboarding(workspace.created, workspace.migrated, planning.created, planning.migrated)) {
     printBootstrapOnboarding();
@@ -540,6 +553,7 @@ function usage(): string {
     "  summarize  Generate a read-only summary of indexed Reffy artifacts.",
     "  plan       Generate and manage ReffySpec planning scaffolds from indexed Reffy artifacts.",
     "  spec       Inspect current specs from the ReffySpec layout.",
+    "  skill      List, show, create, and validate Reffy skills under .reffy/skills.",
     "  remote     Link, publish, and inspect a Paseo-backed remote Reffy workspace.",
     "  diagram    Render Mermaid diagrams (supports SVG and ASCII).",
   ].join("\n");
@@ -571,6 +585,16 @@ function specUsage(): string {
     "Usage:",
     "  reffy spec list [--repo PATH] [--output text|json]",
     "  reffy spec show <spec-id> [--repo PATH] [--output text|json]",
+  ].join("\n");
+}
+
+function skillUsage(): string {
+  return [
+    "Usage:",
+    "  reffy skill list [--repo PATH] [--output text|json]",
+    "  reffy skill show <name> [--repo PATH] [--output text|json]",
+    "  reffy skill create <name> [--repo PATH] [--output text|json]",
+    "  reffy skill validate [<name>] [--repo PATH] [--output text|json]",
   ].join("\n");
 }
 
@@ -1881,6 +1905,127 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  if (command === "skill") {
+    const [subcommand, ...skillArgs] = rest;
+    if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+      console.error(skillUsage());
+      return 1;
+    }
+
+    const output = parseOutputMode(skillArgs);
+    const repoRoot = parseRepoArg(skillArgs);
+    await prepareCanonicalWorkspace(repoRoot);
+    const positionals = getPlanPositionalArgs(skillArgs);
+
+    if (subcommand === "list") {
+      const skills = await discoverSkills(repoRoot);
+      const descriptors = skills.map(({ name, description, triggers, commands, managed, path: relPath }) => ({
+        name,
+        description,
+        triggers,
+        commands,
+        managed,
+        path: relPath,
+      }));
+      if (output === "json") {
+        printResult(output, { status: "ok", command: "skill", subcommand: "list", skills: descriptors });
+      } else if (descriptors.length === 0) {
+        console.log("Skills:");
+        console.log("- (none)");
+      } else {
+        console.log("Skills:");
+        for (const skill of descriptors) {
+          console.log(`- ${skill.name}${skill.managed ? " [managed]" : ""} - ${skill.description}`);
+        }
+      }
+      return 0;
+    }
+
+    if (subcommand === "show") {
+      const name = positionals[0];
+      if (!name) {
+        console.error("reffy skill show requires a skill name");
+        console.error(skillUsage());
+        return 1;
+      }
+      const skill = await findSkill(repoRoot, name);
+      if (!skill) {
+        if (output === "json") {
+          printResult(output, { status: "error", command: "skill", subcommand: "show", error: `skill "${name}" not found` });
+        } else {
+          console.error(`Skill "${name}" not found`);
+        }
+        return 1;
+      }
+      if (output === "json") {
+        printResult(output, {
+          status: "ok",
+          command: "skill",
+          subcommand: "show",
+          skill: {
+            name: skill.name,
+            description: skill.description,
+            triggers: skill.triggers,
+            commands: skill.commands,
+            managed: skill.managed,
+            path: skill.path,
+            body: skill.body,
+          },
+        });
+      } else {
+        console.log(skill.body.trim());
+      }
+      return 0;
+    }
+
+    if (subcommand === "create") {
+      const name = positionals[0];
+      if (!name) {
+        console.error("reffy skill create requires a skill name");
+        console.error(skillUsage());
+        return 1;
+      }
+      try {
+        const result = await createSkill(repoRoot, name);
+        if (output === "json") {
+          printResult(output, { status: "ok", command: "skill", subcommand: "create", ...result });
+        } else {
+          console.log(`Created skill "${result.name}" at ${result.entry_path}`);
+        }
+        return 0;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (output === "json") {
+          printResult(output, { status: "error", command: "skill", subcommand: "create", error: message });
+        } else {
+          console.error(message);
+        }
+        return 1;
+      }
+    }
+
+    if (subcommand === "validate") {
+      const name = positionals[0];
+      const result = await validateSkills(repoRoot, name);
+      const payload = { status: result.ok ? "ok" : "error", command: "skill", subcommand: "validate", ...result };
+      if (output === "json") {
+        printResult(output, payload);
+      } else if (result.ok) {
+        console.log(`Skills valid: skills=${String(result.skill_count)}`);
+      } else {
+        console.error(`Skills invalid: ${String(result.issues.length)} issue(s)`);
+        for (const issue of result.issues) {
+          console.error(`error: ${issue.skill}${issue.field ? ` (${issue.field})` : ""}: ${issue.message}`);
+        }
+      }
+      return result.ok ? 0 : 1;
+    }
+
+    console.error(`Unknown skill subcommand: ${subcommand}`);
+    console.error(skillUsage());
+    return 1;
+  }
+
   const output = parseOutputMode(rest);
 
   if (command === "init") {
@@ -1899,6 +2044,7 @@ async function main(): Promise<number> {
     const workspace = await prepareCanonicalWorkspace(repoRoot);
     const planning = await prepareCanonicalPlanningLayout(repoRoot);
     const agents = await initAgents(repoRoot);
+    const skills = await scaffoldManagedSkills(repoRoot);
     const payload = {
       status: "ok",
       command: "migrate",
@@ -1910,6 +2056,7 @@ async function main(): Promise<number> {
       created_planning_layout: planning.created,
       refs_dir: workspace.state.canonicalDir,
       ...agents,
+      skills,
     };
     if (output === "json") {
       printResult(output, payload);
@@ -1921,6 +2068,7 @@ async function main(): Promise<number> {
       console.log(`Updated ${agents.root_agents_path}`);
       console.log(`Updated ${agents.reffy_agents_path}`);
       console.log(`Updated ${agents.reffyspec_agents_path}`);
+      console.log(`Skills: ${String(skills.written_skills.length)} managed (${skills.preserved_unmanaged.length} unmanaged preserved)`);
     }
     return 0;
   }
@@ -1975,26 +2123,42 @@ async function main(): Promise<number> {
     const repoRoot = parseRepoArg(rest);
     const store = new ReferencesStore(repoRoot);
     const result = await store.validateManifest();
-    const payload = { status: result.ok ? "ok" : "error", command: "validate", ...result };
+    const skills = await validateSkills(repoRoot);
+    const ok = result.ok && skills.ok;
+    const payload = {
+      status: ok ? "ok" : "error",
+      command: "validate",
+      ...result,
+      skills: { ok: skills.ok, issues: skills.issues, skill_count: skills.skill_count },
+    };
     if (output === "json") {
       printResult(output, payload);
-    } else if (result.ok) {
+    } else if (ok) {
       console.log(`Manifest valid: artifacts=${String(result.artifact_count)}`);
+      console.log(`Skills valid: skills=${String(skills.skill_count)}`);
       if (result.warnings.length > 0) {
         for (const warning of result.warnings) {
           console.log(`warn: ${warning}`);
         }
       }
     } else {
-      console.error(`Manifest invalid: ${String(result.errors.length)} error(s)`);
-      for (const error of result.errors) {
-        console.error(`error: ${error}`);
+      if (!result.ok) {
+        console.error(`Manifest invalid: ${String(result.errors.length)} error(s)`);
+        for (const error of result.errors) {
+          console.error(`error: ${error}`);
+        }
+        for (const warning of result.warnings) {
+          console.error(`warn: ${warning}`);
+        }
       }
-      for (const warning of result.warnings) {
-        console.error(`warn: ${warning}`);
+      if (!skills.ok) {
+        console.error(`Skills invalid: ${String(skills.issues.length)} issue(s)`);
+        for (const issue of skills.issues) {
+          console.error(`error: ${issue.skill}${issue.field ? ` (${issue.field})` : ""}: ${issue.message}`);
+        }
       }
     }
-    return result.ok ? 0 : 1;
+    return ok ? 0 : 1;
   }
 
   if (command === "summarize") {

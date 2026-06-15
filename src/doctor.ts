@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { validateManifest } from "./manifest.js";
 import { detectWorkspaceState, resolveRefsDirName } from "./refs-paths.js";
+import { findCommandDrift } from "./skills.js";
 
 type CheckLevel = "required" | "optional";
 
@@ -116,6 +117,19 @@ export async function runDoctor(repoRoot: string): Promise<DoctorReport> {
       workspace.mode === "legacy"
         ? "legacy .references workspace detected; run `reffy migrate` to adopt .reffy/"
         : ".reffy/ is the active workspace",
+  });
+
+  const commandDrift = await findCommandDrift(repoRoot);
+  checks.push({
+    id: "skills_commands_current",
+    level: "optional",
+    ok: commandDrift.length === 0,
+    message:
+      commandDrift.length === 0
+        ? "skill command references match the installed CLI"
+        : `stale skill command references: ${commandDrift
+            .map((drift) => `${drift.skill} -> "${drift.command}"`)
+            .join("; ")}`,
   });
 
   return { checks, summary: summarizeChecks(checks) };

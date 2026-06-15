@@ -1149,3 +1149,68 @@ describe("cli plan archive", () => {
     await expect(access(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-unsupported-archive"))).resolves.toBeUndefined();
   });
 });
+
+describe("cli skill", () => {
+  it("init scaffolds managed skills and wires AGENTS.md discovery", async () => {
+    const repo = await createTempRepo();
+    const init = await runCli(["init", "--repo", repo.repoRoot]);
+    expect(init.code).toBe(0);
+
+    const list = await runCli(["skill", "list", "--repo", repo.repoRoot, "--output", "json"]);
+    const payload = JSON.parse(list.stdout) as { skills: { name: string; managed: boolean }[] };
+    expect(payload.skills.map((s) => s.name)).toContain("create-change");
+    expect(payload.skills.every((s) => s.managed)).toBe(true);
+
+    const rootAgents = await readFile(path.join(repo.repoRoot, "AGENTS.md"), "utf8");
+    expect(rootAgents).toContain("reffy skill list");
+  });
+
+  it("show prints a managed skill body and json descriptor", async () => {
+    const repo = await createTempRepo();
+    await runCli(["init", "--repo", repo.repoRoot]);
+
+    const text = await runCli(["skill", "show", "create-change", "--repo", repo.repoRoot]);
+    expect(text.code).toBe(0);
+    expect(text.stdout).toContain("When to use this skill");
+
+    const json = await runCli(["skill", "show", "create-change", "--repo", repo.repoRoot, "--output", "json"]);
+    const payload = JSON.parse(json.stdout) as { skill: { triggers: string[]; body: string } };
+    expect(payload.skill.triggers.length).toBeGreaterThan(0);
+    expect(payload.skill.body).toContain("reffy plan create");
+  });
+
+  it("create scaffolds an unmanaged skill and validate passes", async () => {
+    const repo = await createTempRepo();
+    await runCli(["init", "--repo", repo.repoRoot]);
+
+    const created = await runCli(["skill", "create", "my-flow", "--repo", repo.repoRoot]);
+    expect(created.code).toBe(0);
+
+    const validate = await runCli(["skill", "validate", "--repo", repo.repoRoot]);
+    expect(validate.code).toBe(0);
+
+    // re-init preserves the unmanaged skill
+    await runCli(["init", "--repo", repo.repoRoot]);
+    await expect(access(path.join(repo.repoRoot, ".reffy", "skills", "my-flow", "SKILL.md"))).resolves.toBeUndefined();
+  });
+
+  it("reffy validate fails on a broken skill and doctor warns on command drift", async () => {
+    const repo = await createTempRepo();
+    await runCli(["init", "--repo", repo.repoRoot]);
+
+    const dir = path.join(repo.repoRoot, ".reffy", "skills", "broken");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, "SKILL.md"),
+      ['---', 'name: broken', 'description: ', 'triggers: []', 'commands: ["reffy frobnicate"]', 'managed: false', '---', 'body'].join("\n"),
+      "utf8",
+    );
+
+    const validate = await runCli(["validate", "--repo", repo.repoRoot]);
+    expect(validate.code).toBe(1);
+    expect(validate.stderr).toContain("Skills invalid");
+
+    const doctor = await runCli(["doctor", "--repo", repo.repoRoot]);
+    expect(doctor.stdout).toContain("stale skill command references");
+  });
+});

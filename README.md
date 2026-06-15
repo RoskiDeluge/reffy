@@ -33,6 +33,7 @@ Command summary:
 - `reffy plan create`: generates proposal, task, design, and spec scaffolds from indexed Reffy artifacts.
 - `reffy plan validate|list|show|archive`: manages the planning lifecycle under `.reffy/reffyspec/`.
 - `reffy spec list|show`: inspects current spec state under `.reffy/reffyspec/`.
+- `reffy skill list|show|create|validate`: lists, prints, scaffolds, and validates task-oriented skills under `.reffy/skills/`.
 - `reffy remote init|status|push|ls|cat|snapshot`: links, publishes, and inspects a Paseo-backed remote `.reffy/` workspace.
 - `reffy remote workspace create|get` and `reffy remote project register|list`: control-plane operations against the workspace manager actor.
 - `reffy diagram render`: renders Mermaid diagrams as SVG or ASCII, including spec-aware generation from compatible `spec.md` files.
@@ -58,6 +59,10 @@ reffy plan create --change-id add-login-flow --artifacts login-idea.md
 reffy plan list --output json
 reffy plan archive add-login-flow
 reffy spec show auth --output json
+reffy skill list --output json
+reffy skill show create-change
+reffy skill create my-workflow
+reffy skill validate
 reffy remote init --provision
 reffy remote status --output json
 reffy remote push
@@ -96,6 +101,52 @@ Inspects the current truth in `.reffy/reffyspec/specs/`. Each capability has its
 reffy spec list
 reffy spec show remote-workspace-manager --output json
 ```
+
+## Skills
+
+Reffy gives *procedures* the same deterministic treatment it gives data. Skills are named, agent-readable task recipes that live as files under `.reffy/skills/`, one directory per skill:
+
+```
+.reffy/skills/
+├── create-change/
+│   └── SKILL.md
+└── <your-skill>/
+    └── SKILL.md
+```
+
+Each `SKILL.md` opens with frontmatter that doubles as a discovery index, followed by a markdown body:
+
+```markdown
+---
+name: create-change
+description: Turn one or more ideation artifacts into a ReffySpec change proposal.
+triggers: ["new change", "plan create", "turn artifact into proposal"]
+commands: ["reffy plan create", "reffy plan validate"]
+managed: true
+---
+
+## When to use this skill
+...
+
+## Steps
+1. ...
+```
+
+- `name`, `description`, and `triggers` are required; `triggers` must have at least one entry so the skill is discoverable.
+- `commands` declares the CLI commands the skill wraps, which `reffy doctor` cross-checks against the installed CLI.
+- `managed: true` marks skills Reffy owns. `reffy init` scaffolds and refreshes managed skills in place and never touches unmanaged ones.
+
+`reffy init` ships six managed skills covering the core workflows: `create-artifact`, `create-change`, `archive-change`, `inspect-specs`, `sync-remote`, and `diagnose`. Author your own with `reffy skill create <name>`.
+
+```bash
+reffy skill list                       # name + description + managed flag
+reffy skill list --output json         # harness-native descriptors for programmatic discovery
+reffy skill show create-change         # print the procedure body
+reffy skill create my-workflow         # scaffold an unmanaged skill from a template
+reffy skill validate                   # check the frontmatter contract for every skill
+```
+
+`reffy skill list`/`show --output json` emit a tool/function-definition style descriptor (`name`, `description`, `triggers`, `commands`, `managed`, `path`; `show` adds `body`) so an agent harness can feed skills into its own discovery machinery without parsing markdown. Skills are discovered from the filesystem and validated by contract — they are not indexed in `manifest.json`. `reffy validate` enforces the skills contract (required fields, unique names, kebab-case directory names matching `name`) alongside the manifest, and `reffy doctor` warns when a skill's declared commands drift from the installed CLI.
 
 ## Remote Sync
 
@@ -314,6 +365,10 @@ Useful side commands during the arc:
 - `reffy plan list` — enumerate active and archived changes.
 - `reffy plan show <change-id>` — inspect one change's state without opening every file.
 - `reffy spec list` / `reffy spec show <capability>` — see the canonical specs the deltas will land into.
+
+### Representing pivots
+
+Pivots, deprecations, and wind-downs are not a separate concept in ReffySpec — they are ordinary changes whose delta is mostly REMOVED or MODIFIED requirements instead of ADDED ones. Because every change's `specs/<capability>/spec.md` is already a delta against the canonical spec, a course correction reuses the same machinery as a feature addition: scaffold a change, author a delta that removes or rewrites the relevant requirements, pair it with code-removal tasks, and archive it when shipped. The history of pivots stays legible as a series of deltas under `changes/archive/`, rather than getting buried in code commits.
 
 ### Reference implementation in this repo
 
