@@ -136,7 +136,7 @@ managed: true
 - `commands` declares the CLI commands the skill wraps, which `reffy doctor` cross-checks against the installed CLI.
 - `managed: true` marks skills Reffy owns. `reffy init` scaffolds and refreshes managed skills in place and never touches unmanaged ones.
 
-`reffy init` ships six managed skills covering the core workflows: `create-artifact`, `create-change`, `archive-change`, `inspect-specs`, `sync-remote`, and `diagnose`. Author your own with `reffy skill create <name>`.
+`reffy init` ships seven managed skills covering the core workflows: `create-artifact`, `create-change`, `archive-change`, `supersede-change`, `inspect-specs`, `sync-remote`, and `diagnose`. Author your own with `reffy skill create <name>`.
 
 ```bash
 reffy skill list                       # name + description + managed flag
@@ -369,6 +369,15 @@ Useful side commands during the arc:
 ### Representing pivots
 
 Pivots, deprecations, and wind-downs are not a separate concept in ReffySpec — they are ordinary changes whose delta is mostly REMOVED or MODIFIED requirements instead of ADDED ones. Because every change's `specs/<capability>/spec.md` is already a delta against the canonical spec, a course correction reuses the same machinery as a feature addition: scaffold a change, author a delta that removes or rewrites the relevant requirements, pair it with code-removal tasks, and archive it when shipped. The history of pivots stays legible as a series of deltas under `changes/archive/`, rather than getting buried in code commits.
+
+There is no pivot command and no per-requirement "deprecated" flag: signaling a change of direction just requires another change. The archive is append-only — you never edit or delete an archived change to reverse it; you land a new change on top, and canonical `specs/` always reflects current truth. When a change reverses or replaces a prior one, name the prior change-id(s) in an optional `## Supersedes` section of `proposal.md`:
+
+```md
+## Supersedes
+- add-old-direction
+```
+
+This is a navigational pointer that keeps the lineage explicit; the spec delta remains the authoritative record of what actually changed. `reffy plan create` scaffolds the `## Supersedes` section (defaulting to `None`) so the convention is there when you need it.
 
 ### Reference implementation in this repo
 

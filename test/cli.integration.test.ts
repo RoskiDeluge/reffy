@@ -786,6 +786,7 @@ describe("cli plan create", () => {
 
     const proposal = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-planning-subsystem", "proposal.md"), "utf8");
     expect(proposal).toContain("## Reffy References");
+    expect(proposal).toContain("## Supersedes");
     expect(proposal).toContain("idea.md");
     expect(proposal).toContain("Users need a more direct path from ideation to planning.");
     expect(proposal).toContain("Generate proposal scaffolds directly from artifacts");

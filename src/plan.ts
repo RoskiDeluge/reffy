@@ -213,6 +213,10 @@ ${changeBullets}
 
 ${buildImpactText(capabilityId, signals)}
 
+## Supersedes
+_Optional. If this change reverses or replaces the direction of a prior change (a pivot, deprecation, or wind-down), name the prior change-id(s) here, e.g. \`- add-old-direction\`. Leave as "None" otherwise. The spec delta remains the authoritative record of what changed; this is a navigational pointer._
+None
+
 ## Reffy References
 ${references}
 `;
