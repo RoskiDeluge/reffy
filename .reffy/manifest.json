@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-06-15T01:30:04.741Z",
+  "updated_at": "2026-06-17T22:25:01.492Z",
   "project_id": "reffy",
   "workspace_ids": [
     "nuveris-v1"
@@ -402,15 +402,15 @@
       "size_bytes": 10741,
       "tags": [],
       "created_at": "2026-06-11T05:25:56.384Z",
-      "updated_at": "2026-06-15T00:56:16.896Z",
+      "updated_at": "2026-06-17T22:25:01.492Z",
       "related_changes": [
         "add-skills-directory"
       ],
       "derived_outputs": [
-        ".reffy/reffyspec/changes/add-skills-directory/proposal.md",
-        ".reffy/reffyspec/changes/add-skills-directory/tasks.md",
-        ".reffy/reffyspec/changes/add-skills-directory/design.md",
-        ".reffy/reffyspec/changes/add-skills-directory/specs/skills-directory/spec.md"
+        ".reffy/reffyspec/changes/archive/2026-06-17-add-skills-directory/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-06-17-add-skills-directory/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-06-17-add-skills-directory/design.md",
+        ".reffy/reffyspec/changes/archive/2026-06-17-add-skills-directory/specs/skills-directory/spec.md"
       ]
     }
   ]
