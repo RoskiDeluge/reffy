@@ -613,16 +613,12 @@ describe("cli legacy .references compatibility", () => {
     expect(await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"), "utf8")).toContain("# demo Specification");
   });
 
-  it("exposes explicit migration as a command", async () => {
+  it("rejects the removed migrate command", async () => {
     const repo = await createTempRepoWithRefsDir(".references");
 
     const result = await runCli(["migrate", "--repo", repo.repoRoot, "--output", "json"]);
-    expect(result.code).toBe(0);
-    const parsed = JSON.parse(result.stdout) as { command: string; migrated_workspace: boolean; refs_dir: string };
-    expect(parsed.command).toBe("migrate");
-    expect(parsed.migrated_workspace).toBe(true);
-    expect(await realpath(parsed.refs_dir)).toBe(await realpath(path.join(repo.repoRoot, ".reffy")));
-    await expect(access(path.join(repo.repoRoot, ".references"))).rejects.toThrow();
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Unknown command: migrate");
   });
 });
 

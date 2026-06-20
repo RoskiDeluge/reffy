@@ -115,7 +115,7 @@ export async function runDoctor(repoRoot: string): Promise<DoctorReport> {
     ok: workspace.mode !== "legacy",
     message:
       workspace.mode === "legacy"
-        ? "legacy .references workspace detected; run `reffy migrate` to adopt .reffy/"
+        ? "legacy .references workspace detected; run `reffy init` to adopt .reffy/"
         : ".reffy/ is the active workspace",
   });
 

@@ -276,7 +276,6 @@ export async function validateSkills(repoRoot: string, name?: string): Promise<S
 export const KNOWN_COMMANDS: readonly string[] = [
   "reffy init",
   "reffy bootstrap",
-  "reffy migrate",
   "reffy doctor",
   "reffy reindex",
   "reffy validate",
@@ -510,7 +509,7 @@ Use this first when a Reffy command misbehaves in an unfamiliar repo.
 2. Run \`reffy validate\` to confirm the manifest contract.
 3. Resolve each failure by class:
    - Missing \`.reffy/\` or \`AGENTS.md\`: run \`reffy init\`.
-   - Legacy \`.references/\` workspace: run \`reffy migrate\`.
+   - Legacy \`.references/\` workspace: run \`reffy init\`.
    - Invalid manifest: fix the reported entry, then re-run \`reffy validate\`.
    - Skill command drift: update the stale skill's \`commands\` list.
 

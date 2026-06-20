@@ -25,7 +25,6 @@ Command summary:
 
 - `reffy init`: runs the canonical first-run setup flow, creates the `.reffy/` and `.reffy/reffyspec/` structure, writes managed instructions, reindexes artifacts, and on first-run text output prints a copy/paste instruction for your agent harness.
 - `reffy bootstrap`: compatibility alias for `reffy init`.
-- `reffy migrate`: migrates a legacy `.references/` workspace into `.reffy/`.
 - `reffy doctor`: diagnoses required Reffy setup and workspace health.
 - `reffy reindex`: reconciles `.reffy/manifest.json` with `.reffy/artifacts` by adding missing files and removing stale entries.
 - `reffy validate`: validates `.reffy/manifest.json` against manifest v1 contract.

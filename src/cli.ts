@@ -552,7 +552,6 @@ function usage(): string {
     "Commands:",
     "  init       Run the canonical first-run setup flow and refresh managed instructions.",
     "  bootstrap  Compatibility alias for init.",
-    "  migrate    Migrate a legacy .references workspace to the canonical .reffy layout.",
     "  doctor     Diagnose required Reffy setup and optional tool availability.",
     "  reindex    Scan .reffy/artifacts and add missing files to manifest.",
     "  validate   Validate .reffy/manifest.json against manifest v1 contract.",
@@ -2043,40 +2042,6 @@ async function main(): Promise<number> {
   if (command === "bootstrap") {
     const repoRoot = parseRepoArg(rest);
     return await runSetupCommand("bootstrap", output, repoRoot);
-  }
-
-  if (command === "migrate") {
-    const repoRoot = parseRepoArg(rest);
-    const workspace = await prepareCanonicalWorkspace(repoRoot);
-    const planning = await prepareCanonicalPlanningLayout(repoRoot);
-    const agents = await initAgents(repoRoot);
-    const skills = await scaffoldManagedSkills(repoRoot);
-    const payload = {
-      status: "ok",
-      command: "migrate",
-      workspace_mode: workspace.state.mode,
-      migrated_workspace: workspace.migrated,
-      created_workspace: workspace.created,
-      planning_mode: planning.state.mode,
-      migrated_planning_layout: planning.migrated,
-      created_planning_layout: planning.created,
-      refs_dir: workspace.state.canonicalDir,
-      ...agents,
-      skills,
-    };
-    if (output === "json") {
-      printResult(output, payload);
-    } else {
-      console.log(workspace.message ?? `Workspace ready at ${workspace.state.canonicalDir}`);
-      if (planning.message) {
-        console.log(planning.message);
-      }
-      console.log(`Updated ${agents.root_agents_path}`);
-      console.log(`Updated ${agents.reffy_agents_path}`);
-      console.log(`Updated ${agents.reffyspec_agents_path}`);
-      console.log(`Skills: ${String(skills.written_skills.length)} managed (${skills.preserved_unmanaged.length} unmanaged preserved)`);
-    }
-    return 0;
   }
 
   if (command === "reindex") {
