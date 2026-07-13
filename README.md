@@ -12,6 +12,8 @@ Reffy is a planning system for AI assisted development. It keeps ideation artifa
 npm install -g reffy-cli@latest
 ```
 
+You can also install the published CLI with pnpm, for example `pnpm add -g reffy-cli@latest`. The package manager you choose only controls how the CLI package is installed and cached on your machine. Reffy itself does not install dependencies or force npm/pnpm/yarn in the repositories where you run `reffy`; it writes and validates the `.reffy/` planning workspace using Node.js filesystem APIs.
+
 ## Quickstart (CLI-only)
 
 Inside your project:
