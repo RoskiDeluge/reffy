@@ -392,13 +392,14 @@ This is a navigational pointer that keeps the lineage explicit; the spec delta r
 For local development of this repo:
 
 ```bash
-npm install
-npm run build
-npm run check
-npm test
+corepack enable
+pnpm install
+pnpm build
+pnpm check
+pnpm test
 ```
 
-`npm install` runs this package's `prepare` step, which builds `dist/` automatically.
+`pnpm install` runs this package's `prepare` step, which builds `dist/` automatically. Use `pnpm reffy <args>` to exercise the built local CLI through `dist/cli.js`; this avoids accidentally invoking a globally installed `reffy` while working in this repo.
 
 ## Release Security
 

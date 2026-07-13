@@ -4,6 +4,7 @@ dist/
 .reffy/state/
 coverage/
 .npm-cache/
+.pnpm-store/
 
 
 # vendor projects

@@ -9,7 +9,7 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 - TypeScript (strict mode) targeting Node.js `>=20`
 - Node.js built-in modules (`fs`, `path`, `crypto`)
 - ESM (`"type": "module"`, `module`/`moduleResolution` set to `NodeNext`)
-- CLI runtime and packaging via npm (`bin` entry `reffy -> dist/cli.js`)
+- CLI runtime and packaging via pnpm for local development, published to the npm registry (`bin` entry `reffy -> dist/cli.js`)
 - Dependencies:
   - `mime-types` for content type inference
   - `uuid` (available; `randomUUID` is currently sourced from Node `crypto`)
@@ -50,9 +50,9 @@ Primary goals are idempotent setup, predictable local file-based behavior, and s
 ### Testing Strategy
 - Automated tests run under Vitest.
 - Current quality gates:
-  - `npm run build` (TypeScript compile)
-  - `npm run check` (`tsc --noEmit`)
-  - `npm test`
+  - `pnpm build` (TypeScript compile)
+  - `pnpm check` (`tsc --noEmit`)
+  - `pnpm test`
 - For behavior changes, prefer adding or updating automated tests plus CLI smoke coverage for flows such as `reffy init/bootstrap/migrate/reindex/validate/plan/spec`.
 
 ### Git Workflow
