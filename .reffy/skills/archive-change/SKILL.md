@@ -16,4 +16,6 @@ Use this once a change is implemented and verified and you want to fold its spec
 4. Verify the merge with `reffy spec show <capability>`.
 
 ## Failure modes
+- If validation reports an unexpected change path, consolidate durable content into `design.md` or `tasks.md`, or move exploratory content to indexed `.reffy/artifacts/`.
 - If archive reports unmerged or conflicting requirements, inspect the delta against the canonical spec before retrying.
+- Rename-only entries require paired `FROM: ### Requirement: Old Name` and `TO: ### Requirement: New Name` lines; modifications after a rename use the destination name.

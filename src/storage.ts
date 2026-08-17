@@ -11,6 +11,11 @@ function utcNow(): string {
   return new Date().toISOString();
 }
 
+export interface PreparedDerivedOutputReconciliation {
+  updated: number;
+  commit: () => Promise<void>;
+}
+
 export class ReferencesStore {
   public readonly repoRoot: string;
   public readonly refsDir: string;
@@ -238,12 +243,17 @@ export class ReferencesStore {
   }
 
   public async rewriteDerivedOutputPaths(pathMap: Record<string, string>): Promise<{ updated: number }> {
-    const replacements = Object.entries(pathMap);
-    if (replacements.length === 0) {
-      return { updated: 0 };
-    }
+    const prepared = await this.prepareDerivedOutputReconciliation(pathMap);
+    await prepared.commit();
+    return { updated: prepared.updated };
+  }
 
+  public async prepareDerivedOutputReconciliation(
+    pathMap: Record<string, string>,
+    staleChangePrefix?: string,
+  ): Promise<PreparedDerivedOutputReconciliation> {
     const manifest = await this.readManifest();
+    const normalizedPrefix = staleChangePrefix?.replace(/\\/g, "/").replace(/\/$/, "");
     let updated = 0;
 
     for (const artifact of manifest.artifacts) {
@@ -251,14 +261,29 @@ export class ReferencesStore {
       if (outputs.length === 0) continue;
 
       let changed = false;
-      const nextOutputs = outputs.map((outputPath) => {
+      const nextOutputs: string[] = [];
+      for (const outputPath of outputs) {
         const replacement = pathMap[outputPath];
-        if (!replacement || replacement === outputPath) {
-          return outputPath;
+        if (replacement && replacement !== outputPath) {
+          nextOutputs.push(replacement);
+          changed = true;
+          continue;
         }
-        changed = true;
-        return replacement;
-      });
+
+        const normalizedOutput = outputPath.replace(/\\/g, "/");
+        const isScopedToChange =
+          normalizedPrefix !== undefined &&
+          (normalizedOutput === normalizedPrefix || normalizedOutput.startsWith(`${normalizedPrefix}/`));
+        if (isScopedToChange) {
+          const outputStat = await fs.stat(path.resolve(this.repoRoot, outputPath)).catch(() => null);
+          if (!outputStat?.isFile()) {
+            changed = true;
+            continue;
+          }
+        }
+
+        nextOutputs.push(outputPath);
+      }
 
       if (!changed) continue;
 
@@ -269,10 +294,14 @@ export class ReferencesStore {
 
     if (updated > 0) {
       manifest.updated_at = utcNow();
-      await this.writeManifest(manifest);
     }
 
-    return { updated };
+    return {
+      updated,
+      commit: async () => {
+        if (updated > 0) await this.writeManifest(manifest);
+      },
+    };
   }
 
   public async updateArtifact(

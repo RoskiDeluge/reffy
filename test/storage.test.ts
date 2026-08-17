@@ -1,4 +1,4 @@
-import { rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -120,5 +120,34 @@ describe("ReferencesStore", () => {
     const updated = await store.getArtifact(created.id);
     expect(updated?.related_changes).toContain("add-demo");
     expect(updated?.derived_outputs).toContain(".reffy/reffyspec/changes/add-demo/proposal.md");
+  });
+
+  it("prepares and commits scoped derived-output reconciliation", async () => {
+    const repo = await createTempRepo();
+    const store = new ReferencesStore(repo.repoRoot);
+    const created = await store.createArtifact({ name: "Planning Input", content: "context" });
+    const activeProposal = ".reffy/reffyspec/changes/add-demo/proposal.md";
+    const missingDesign = ".reffy/reffyspec/changes/add-demo/design.md";
+    const unrelated = ".reffy/reffyspec/changes/keep-demo/proposal.md";
+    await mkdir(path.dirname(path.join(repo.repoRoot, activeProposal)), { recursive: true });
+    await mkdir(path.dirname(path.join(repo.repoRoot, unrelated)), { recursive: true });
+    await writeFile(path.join(repo.repoRoot, activeProposal), "proposal", "utf8");
+    await writeFile(path.join(repo.repoRoot, unrelated), "unrelated", "utf8");
+    await store.linkPlanningOutputs([created.filename], [activeProposal, missingDesign, unrelated], "add-demo");
+
+    const archivedProposal = ".reffy/reffyspec/changes/archive/2026-01-01-add-demo/proposal.md";
+    const prepared = await store.prepareDerivedOutputReconciliation(
+      { [activeProposal]: archivedProposal },
+      ".reffy/reffyspec/changes/add-demo",
+    );
+    expect(prepared.updated).toBe(1);
+    expect((await store.getArtifact(created.id))?.derived_outputs).toEqual([
+      activeProposal,
+      missingDesign,
+      unrelated,
+    ]);
+
+    await prepared.commit();
+    expect((await store.getArtifact(created.id))?.derived_outputs).toEqual([archivedProposal, unrelated]);
   });
 });

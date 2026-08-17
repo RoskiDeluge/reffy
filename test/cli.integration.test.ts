@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { access, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
 
@@ -954,6 +954,83 @@ describe("cli plan validate/list/show", () => {
     expect(parsed.errors.join("\n")).toContain('scenarios must use "#### Scenario:" headings');
   });
 
+  it("accepts an omitted design and reports every unexpected change path", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "harden-layout");
+    const changeDir = path.join(repo.repoRoot, PLANNING_ROOT, "changes", "harden-layout");
+    await rm(path.join(changeDir, "design.md"));
+
+    const valid = await runCli(["plan", "validate", "harden-layout", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(valid.code).toBe(0);
+
+    await writeFile(path.join(changeDir, "rollout.md"), "unsupported", "utf8");
+    await mkdir(path.join(changeDir, "notes"), { recursive: true });
+    await writeFile(path.join(changeDir, "notes", "one.md"), "unsupported", "utf8");
+    await writeFile(path.join(changeDir, "specs", "readme.md"), "unsupported", "utf8");
+    await writeFile(path.join(changeDir, "specs", "demo", "checklist.md"), "unsupported", "utf8");
+
+    const invalid = await runCli(["plan", "validate", "harden-layout", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(invalid.code).toBe(1);
+    const parsed = JSON.parse(invalid.stdout) as { errors: string[] };
+    const errors = parsed.errors.join("\n");
+    expect(errors).toContain("unexpected change path: rollout.md");
+    expect(errors).toContain("unexpected change path: notes");
+    expect(errors).toContain("unexpected change path: notes/one.md");
+    expect(errors).toContain("unexpected change path: specs/readme.md");
+    expect(errors).toContain("unexpected change path: specs/demo/checklist.md");
+    expect(errors).toContain("Move durable decisions to design.md");
+
+    const text = await runCli(["plan", "validate", "harden-layout", "--repo", repo.repoRoot]);
+    expect(text.code).toBe(1);
+    expect(text.stderr).toContain("unexpected change path: rollout.md");
+  });
+
+  it("rejects malformed rename pairs during validation", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "rename-malformed");
+    await createCurrentSpec(repo.repoRoot, "demo");
+    await overwriteFile(
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "rename-malformed", "specs", "demo", "spec.md"),
+      ["## RENAMED Requirements", "- FROM: `### Requirement: Demo Requirement`"].join("\n"),
+    );
+
+    const result = await runCli(["plan", "validate", "rename-malformed", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { errors: string[] };
+    expect(parsed.errors.join("\n")).toContain("missing a paired TO line");
+  });
+
+  it("rejects conflicting delta operations during validation", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "conflicting-delta");
+    await createCurrentSpec(repo.repoRoot, "demo");
+    await overwriteFile(
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "conflicting-delta", "specs", "demo", "spec.md"),
+      [
+        "## MODIFIED Requirements",
+        "### Requirement: Demo Requirement",
+        "The system SHALL modify this requirement.",
+        "",
+        "#### Scenario: Modify",
+        "- **WHEN** validation runs",
+        "- **THEN** modification is parsed",
+        "",
+        "## REMOVED Requirements",
+        "### Requirement: Demo Requirement",
+        "The system SHALL remove this requirement.",
+        "",
+        "#### Scenario: Remove",
+        "- **WHEN** validation runs",
+        "- **THEN** removal is parsed",
+      ].join("\n"),
+    );
+
+    const result = await runCli(["plan", "validate", "conflicting-delta", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { errors: string[] };
+    expect(parsed.errors.join("\n")).toContain("incompatible MODIFIED and REMOVED operations");
+  });
+
   it("lists active planning changes with task and delta summaries", async () => {
     const repo = await createTempRepo();
     await createPlanningChange(repo.repoRoot, "add-alpha", { checkedTasks: true });
@@ -1058,6 +1135,7 @@ describe("cli plan archive", () => {
       ["plan", "create", "--repo", repo.repoRoot, "--change-id", "add-archive-demo", "--artifacts", "archive-input.md", "--output", "json"],
     );
     expect(createResult.code).toBe(0);
+    await rm(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-archive-demo", "design.md"));
 
     const archiveResult = await runCli(["plan", "archive", "add-archive-demo", "--repo", repo.repoRoot, "--output", "json"]);
     expect(archiveResult.code).toBe(0);
@@ -1084,6 +1162,7 @@ describe("cli plan archive", () => {
     const manifestText = await readFile(repo.manifestPath, "utf8");
     expect(manifestText).toContain(".reffy/reffyspec/changes/archive/");
     expect(manifestText).not.toContain(".reffy/reffyspec/changes/add-archive-demo/proposal.md");
+    expect(manifestText).not.toContain("add-archive-demo/design.md");
   });
 
   it("appends supported archived requirements to an existing current spec", async () => {
@@ -1124,26 +1203,140 @@ describe("cli plan archive", () => {
     expect(currentSpec).not.toContain("The system SHALL expose the current spec for inspection.");
   });
 
-  it("fails safely on unsupported delta section types", async () => {
+  it("archives REMOVED requirements into an existing current spec", async () => {
     const repo = await createTempRepo();
-    await createPlanningChange(repo.repoRoot, "add-unsupported-archive");
+    await createPlanningChange(repo.repoRoot, "remove-demo");
+    await createCurrentSpec(repo.repoRoot, "demo");
     await overwriteFile(
-      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-unsupported-archive", "specs", "demo", "spec.md"),
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "remove-demo", "specs", "demo", "spec.md"),
       [
         "## REMOVED Requirements",
-        "### Requirement: Demo",
-        "The system SHALL archive removed requirements later.",
+        "### Requirement: Demo Requirement",
+        "The system SHALL expose the current spec for inspection.",
         "",
-        "#### Scenario: Unsupported archive pattern",
+        "#### Scenario: Remove the requirement",
         "- **WHEN** a user archives this change",
-        "- **THEN** the command fails safely",
+        "- **THEN** the requirement is absent from canonical truth",
       ].join("\n"),
     );
 
-    const archiveResult = await runCli(["plan", "archive", "add-unsupported-archive", "--repo", repo.repoRoot, "--output", "json"]);
+    const archiveResult = await runCli(["plan", "archive", "remove-demo", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(archiveResult.code).toBe(0);
+    const currentSpec = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"), "utf8");
+    expect(currentSpec).not.toContain("### Requirement: Demo Requirement");
+  });
+
+  it("archives RENAMED requirements before modifications", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "rename-demo");
+    await createCurrentSpec(repo.repoRoot, "demo");
+    await overwriteFile(
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "rename-demo", "specs", "demo", "spec.md"),
+      [
+        "## RENAMED Requirements",
+        "- FROM: `### Requirement: Demo Requirement`",
+        "- TO: `### Requirement: Renamed Requirement`",
+        "",
+        "## MODIFIED Requirements",
+        "### Requirement: Renamed Requirement",
+        "The system SHALL expose renamed and updated behavior.",
+        "",
+        "#### Scenario: Show the renamed spec",
+        "- **WHEN** a user archives this change",
+        "- **THEN** canonical truth uses the new behavior and heading",
+      ].join("\n"),
+    );
+
+    const archiveResult = await runCli(["plan", "archive", "rename-demo", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(archiveResult.code).toBe(0);
+    const currentSpec = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"), "utf8");
+    expect(currentSpec).toContain("### Requirement: Renamed Requirement");
+    expect(currentSpec).toContain("renamed and updated behavior");
+    expect(currentSpec).not.toContain("### Requirement: Demo Requirement");
+  });
+
+  it("preserves requirement content for a rename-only delta", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "rename-only-demo");
+    await createCurrentSpec(repo.repoRoot, "demo");
+    await overwriteFile(
+      path.join(repo.repoRoot, PLANNING_ROOT, "changes", "rename-only-demo", "specs", "demo", "spec.md"),
+      [
+        "## RENAMED Requirements",
+        "- FROM: `### Requirement: Demo Requirement`",
+        "- TO: `### Requirement: Preserved Requirement`",
+      ].join("\n"),
+    );
+
+    const archiveResult = await runCli(["plan", "archive", "rename-only-demo", "--repo", repo.repoRoot, "--output", "json"]);
+    expect(archiveResult.code).toBe(0);
+    const currentSpec = await readFile(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"), "utf8");
+    expect(currentSpec).toContain("### Requirement: Preserved Requirement");
+    expect(currentSpec).toContain("The system SHALL expose the current spec for inspection.");
+    expect(currentSpec).toContain("#### Scenario: Show the spec");
+    expect(currentSpec).not.toContain("### Requirement: Demo Requirement");
+  });
+
+  it("fails archive preflight without mutating files, specs, or manifest", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "reject-invalid-archive");
+    const changeDir = path.join(repo.repoRoot, PLANNING_ROOT, "changes", "reject-invalid-archive");
+    await writeFile(path.join(changeDir, "rollout.md"), "unsupported", "utf8");
+    const manifestBefore = await readFile(repo.manifestPath, "utf8");
+
+    const archiveResult = await runCli([
+      "plan",
+      "archive",
+      "reject-invalid-archive",
+      "--repo",
+      repo.repoRoot,
+      "--output",
+      "json",
+    ]);
     expect(archiveResult.code).toBe(1);
-    expect(archiveResult.stdout || archiveResult.stderr).toContain("unsupported delta sections");
-    await expect(access(path.join(repo.repoRoot, PLANNING_ROOT, "changes", "add-unsupported-archive"))).resolves.toBeUndefined();
+    expect(archiveResult.stdout || archiveResult.stderr).toContain("unexpected change path: rollout.md");
+    await expect(access(changeDir)).resolves.toBeUndefined();
+    await expect(access(path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md"))).rejects.toThrow();
+    expect(await readFile(repo.manifestPath, "utf8")).toBe(manifestBefore);
+  });
+
+  it("fails semantic archive preflight without mutating canonical state", async () => {
+    const repo = await createTempRepo();
+    await createPlanningChange(repo.repoRoot, "reject-semantic-archive");
+    await createCurrentSpec(repo.repoRoot, "demo");
+    const changeDir = path.join(repo.repoRoot, PLANNING_ROOT, "changes", "reject-semantic-archive");
+    const currentSpecPath = path.join(repo.repoRoot, PLANNING_ROOT, "specs", "demo", "spec.md");
+    await overwriteFile(
+      path.join(changeDir, "specs", "demo", "spec.md"),
+      [
+        "## REMOVED Requirements",
+        "### Requirement: Missing Requirement",
+        "The system SHALL not find this requirement.",
+        "",
+        "#### Scenario: Missing removal target",
+        "- **WHEN** archive preflight checks canonical truth",
+        "- **THEN** it rejects the missing target",
+      ].join("\n"),
+    );
+    const currentBefore = await readFile(currentSpecPath, "utf8");
+    const manifestBefore = await readFile(repo.manifestPath, "utf8");
+
+    const archiveResult = await runCli([
+      "plan",
+      "archive",
+      "reject-semantic-archive",
+      "--repo",
+      repo.repoRoot,
+      "--output",
+      "json",
+    ]);
+    expect(archiveResult.code).toBe(1);
+    expect(archiveResult.stdout || archiveResult.stderr).toContain(
+      'removed requirement "Missing Requirement" was not found',
+    );
+    await expect(access(changeDir)).resolves.toBeUndefined();
+    expect(await readFile(currentSpecPath, "utf8")).toBe(currentBefore);
+    expect(await readFile(repo.manifestPath, "utf8")).toBe(manifestBefore);
   });
 });
 

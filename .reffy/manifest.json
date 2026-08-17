@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-07-13T22:06:04.288Z",
+  "updated_at": "2026-08-17T00:06:25.000Z",
   "project_id": "reffy",
   "workspace_ids": [
     "nuveris-v1"
@@ -214,7 +214,7 @@
       "size_bytes": 10348,
       "tags": [],
       "created_at": "2026-04-19T22:43:23.153Z",
-      "updated_at": "2026-04-20T01:16:32.466Z",
+      "updated_at": "2026-08-17T00:06:25.000Z",
       "related_changes": [
         "add-remote-sync-snapshot-publication",
         "harden-remote-sync-step1"
@@ -227,7 +227,7 @@
         ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/proposal.md",
         ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/tasks.md",
         ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/design.md",
-        ".reffy/reffyspec/changes/harden-remote-sync-step1/specs/harden-remote-sync-step1/spec.md"
+        ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/specs/remote-sync-snapshot-publication/spec.md"
       ]
     },
     {
@@ -259,7 +259,7 @@
       "size_bytes": 2933,
       "tags": [],
       "created_at": "2026-04-19T23:38:08.588Z",
-      "updated_at": "2026-04-20T01:16:32.466Z",
+      "updated_at": "2026-08-17T00:06:25.000Z",
       "related_changes": [
         "harden-remote-sync-step1"
       ],
@@ -267,7 +267,7 @@
         ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/proposal.md",
         ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/tasks.md",
         ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/design.md",
-        ".reffy/reffyspec/changes/harden-remote-sync-step1/specs/harden-remote-sync-step1/spec.md"
+        ".reffy/reffyspec/changes/archive/2026-04-20-harden-remote-sync-step1/specs/remote-sync-snapshot-publication/spec.md"
       ]
     },
     {
@@ -344,7 +344,7 @@
       "size_bytes": 8202,
       "tags": [],
       "created_at": "2026-05-03T00:48:27.934Z",
-      "updated_at": "2026-05-04T00:46:52.235Z",
+      "updated_at": "2026-08-17T00:06:25.000Z",
       "related_changes": [
         "integrate-workspace-manager-and-backend-v2",
         "add-bearer-token-auth-for-paseo-linkage"
@@ -353,11 +353,13 @@
         ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/proposal.md",
         ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/tasks.md",
         ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/design.md",
-        ".reffy/reffyspec/changes/integrate-workspace-manager-and-backend-v2/specs/integrate-workspace-manager-and-backend-v2/spec.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/specs/remote-sync-snapshot-publication/spec.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-integrate-workspace-manager-and-backend-v2/specs/remote-workspace-manager/spec.md",
         ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/proposal.md",
         ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/tasks.md",
         ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/design.md",
-        ".reffy/reffyspec/changes/add-bearer-token-auth-for-paseo-linkage/specs/bearer-token-auth-for-paseo-linkage/spec.md"
+        ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/specs/remote-sync-snapshot-publication/spec.md",
+        ".reffy/reffyspec/changes/archive/2026-05-04-add-bearer-token-auth-for-paseo-linkage/specs/remote-workspace-manager/spec.md"
       ]
     },
     {
@@ -422,7 +424,7 @@
       "size_bytes": 6528,
       "tags": [],
       "created_at": "2026-06-17T22:33:09.117Z",
-      "updated_at": "2026-06-17T22:55:30.553Z",
+      "updated_at": "2026-08-17T00:06:25.000Z",
       "related_changes": [
         "add-supersede-change-skill"
       ],
@@ -430,7 +432,7 @@
         ".reffy/reffyspec/changes/archive/2026-06-17-add-supersede-change-skill/proposal.md",
         ".reffy/reffyspec/changes/archive/2026-06-17-add-supersede-change-skill/tasks.md",
         ".reffy/reffyspec/changes/archive/2026-06-17-add-supersede-change-skill/design.md",
-        ".reffy/reffyspec/changes/add-supersede-change-skill/specs/supersede-change-skill/spec.md"
+        ".reffy/reffyspec/changes/archive/2026-06-17-add-supersede-change-skill/specs/skills-directory/spec.md"
       ]
     },
     {
@@ -443,6 +445,29 @@
       "tags": [],
       "created_at": "2026-07-13T22:06:04.287Z",
       "updated_at": "2026-07-13T22:06:04.287Z"
+    },
+    {
+      "id": "c486ef53-c7f6-4885-aaa4-a21f6aeb1b59",
+      "name": "reffy cli rules hardening",
+      "filename": "reffy-cli-rules-hardening.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 8171,
+      "tags": [],
+      "created_at": "2026-08-16T23:51:46.564Z",
+      "updated_at": "2026-08-16T23:51:46.686Z",
+      "related_changes": [
+        "harden-reffyspec-change-contracts"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/proposal.md",
+        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/tasks.md",
+        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/design.md",
+        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/artifact-planning/spec.md",
+        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/planning-archive/spec.md",
+        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/planning-validation/spec.md",
+        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/reffyspec-layout/spec.md"
+      ]
     }
   ]
 }

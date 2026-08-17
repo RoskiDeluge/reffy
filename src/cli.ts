@@ -221,6 +221,8 @@ These instructions are for AI assistants working in this project.
 - \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/\` contains active proposed changes.
 - \`${DEFAULT_PLANNING_RELATIVE_DIR}/changes/archive/\` contains historical archived changes.
 - \`${DEFAULT_PLANNING_RELATIVE_DIR}/specs/\` contains current truth for each capability.
+- The active-change tree is exhaustive: \`proposal.md\`, \`tasks.md\`, optional \`design.md\`, and one \`specs/<capability>/spec.md\` per affected capability.
+- Arbitrary additional change-local paths are unsupported. Put durable decisions in \`design.md\`, checklist work in \`tasks.md\`, and exploratory context in indexed \`.reffy/artifacts/\`.
 
 ## Proposal Rules
 
@@ -228,6 +230,7 @@ These instructions are for AI assistants working in this project.
 - Include \`proposal.md\`, \`tasks.md\`, optional \`design.md\`, and delta specs per affected capability.
 - Delta specs must use \`## ADDED|MODIFIED|REMOVED|RENAMED Requirements\`.
 - Each requirement must include at least one \`#### Scenario:\`.
+- Rename-only entries use paired \`FROM: ### Requirement: Old Name\` and \`TO: ### Requirement: New Name\` lines and do not need scenarios; a following \`MODIFIED\` block uses the new name.
 
 ## Representing Pivots
 

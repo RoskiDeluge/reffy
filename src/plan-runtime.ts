@@ -1,13 +1,12 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { applyDeltaToCurrentSpec, parseDeltaSpec } from "./plan-contract.js";
 import { resolvePlanningPath } from "./planning-paths.js";
 
 const CHANGE_HEADING_PREFIX = "# Change:";
-const REQUIREMENT_SECTION_PATTERN = /^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements\s*$/;
-const REQUIREMENT_HEADING_PATTERN = /^###\s+Requirement:\s+(.+)$/;
-const SCENARIO_HEADING_PATTERN = /^####\s+Scenario:\s+(.+)$/;
-const BAD_SCENARIO_PATTERNS = [/^###\s+Scenario:/, /^- \*\*Scenario:/, /^\*\*Scenario\*\*:/];
+const UNEXPECTED_PATH_GUIDANCE =
+  "Move durable decisions to design.md, checklist work to tasks.md, or exploratory context to .reffy/artifacts/.";
 
 export interface TaskStatus {
   total: number;
@@ -50,6 +49,11 @@ interface ChangePaths {
   specsDir: string;
 }
 
+interface ChangeTreeInspection {
+  errors: string[];
+  specFiles: string[];
+}
+
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
@@ -81,15 +85,106 @@ async function listSpecFiles(specsDir: string): Promise<string[]> {
   const files: string[] = [];
 
   for (const capability of capabilities) {
-    const capabilityDir = path.join(specsDir, capability);
-    const entries = await fs.readdir(capabilityDir, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-      files.push(path.join(capabilityDir, entry.name));
-    }
+    const specPath = path.join(specsDir, capability, "spec.md");
+    const stat = await fs.stat(specPath).catch(() => null);
+    if (stat?.isFile()) files.push(specPath);
   }
 
   return files.sort();
+}
+
+function toRelativeChangePath(changeDir: string, targetPath: string): string {
+  return path.relative(changeDir, targetPath).split(path.sep).join("/");
+}
+
+function unexpectedPathError(relativePath: string, detail?: string): string {
+  const suffix = detail ? ` (${detail})` : "";
+  return `unexpected change path: ${relativePath}${suffix}. ${UNEXPECTED_PATH_GUIDANCE}`;
+}
+
+async function collectUnexpectedTree(
+  changeDir: string,
+  targetPath: string,
+  errors: string[],
+  detail?: string,
+): Promise<void> {
+  errors.push(unexpectedPathError(toRelativeChangePath(changeDir, targetPath), detail));
+  const targetStat = await fs.lstat(targetPath).catch(() => null);
+  if (!targetStat?.isDirectory() || targetStat.isSymbolicLink()) return;
+  const entries = await fs.readdir(targetPath, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    await collectUnexpectedTree(changeDir, path.join(targetPath, entry.name), errors);
+  }
+}
+
+async function inspectChangeTree(paths: ChangePaths): Promise<ChangeTreeInspection> {
+  const errors: string[] = [];
+  const specFiles: string[] = [];
+  const topEntries = await fs.readdir(paths.changeDir, { withFileTypes: true }).catch(() => []);
+  const topByName = new Map(topEntries.map((entry) => [entry.name, entry]));
+  const allowedTopLevel = new Set(["proposal.md", "tasks.md", "design.md", "specs"]);
+
+  for (const entry of topEntries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!allowedTopLevel.has(entry.name)) {
+      await collectUnexpectedTree(paths.changeDir, path.join(paths.changeDir, entry.name), errors);
+    }
+  }
+
+  for (const requiredFile of ["proposal.md", "tasks.md"]) {
+    const entry = topByName.get(requiredFile);
+    if (!entry) {
+      errors.push(`missing required file: ${requiredFile}`);
+    } else if (!entry.isFile()) {
+      await collectUnexpectedTree(paths.changeDir, path.join(paths.changeDir, requiredFile), errors, "expected a file");
+    }
+  }
+
+  const designEntry = topByName.get("design.md");
+  if (designEntry && !designEntry.isFile()) {
+    await collectUnexpectedTree(paths.changeDir, paths.designPath, errors, "expected a file");
+  }
+
+  const specsEntry = topByName.get("specs");
+  if (!specsEntry) {
+    errors.push("missing required directory: specs/");
+  } else if (!specsEntry.isDirectory()) {
+    await collectUnexpectedTree(paths.changeDir, paths.specsDir, errors, "expected a directory");
+  } else {
+    const capabilityEntries = await fs.readdir(paths.specsDir, { withFileTypes: true });
+    for (const capabilityEntry of capabilityEntries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const capabilityPath = path.join(paths.specsDir, capabilityEntry.name);
+      if (!capabilityEntry.isDirectory()) {
+        await collectUnexpectedTree(paths.changeDir, capabilityPath, errors, "expected a capability directory");
+        continue;
+      }
+
+      const entries = await fs.readdir(capabilityPath, { withFileTypes: true });
+      const specEntry = entries.find((entry) => entry.name === "spec.md");
+      if (!specEntry) {
+        errors.push(`missing required file: specs/${capabilityEntry.name}/spec.md`);
+      } else if (!specEntry.isFile()) {
+        await collectUnexpectedTree(
+          paths.changeDir,
+          path.join(capabilityPath, "spec.md"),
+          errors,
+          "expected a file",
+        );
+      } else {
+        specFiles.push(path.join(capabilityPath, "spec.md"));
+      }
+
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (entry.name === "spec.md") continue;
+        await collectUnexpectedTree(paths.changeDir, path.join(capabilityPath, entry.name), errors);
+      }
+    }
+  }
+
+  if (specFiles.length === 0 && specsEntry?.isDirectory()) {
+    errors.push("specs/ must contain at least one delta spec file");
+  }
+
+  return { errors, specFiles: specFiles.sort() };
 }
 
 function countTasks(content: string): TaskStatus {
@@ -113,60 +208,6 @@ function extractTitle(content: string, fallback: string): string {
     }
   }
   return fallback;
-}
-
-function validateSpecContent(content: string, relPath: string, errors: string[]): void {
-  const lines = content.split(/\r?\n/);
-  let sectionCount = 0;
-  let requirementCount = 0;
-  let scenarioCount = 0;
-  let currentRequirement: string | null = null;
-  let currentRequirementScenarios = 0;
-
-  const finalizeRequirement = (): void => {
-    if (currentRequirement !== null && currentRequirementScenarios === 0) {
-      errors.push(`${relPath}: requirement "${currentRequirement}" must include at least one scenario`);
-    }
-  };
-
-  for (const line of lines) {
-    if (REQUIREMENT_SECTION_PATTERN.test(line)) {
-      sectionCount += 1;
-      continue;
-    }
-
-    const requirementMatch = line.match(REQUIREMENT_HEADING_PATTERN);
-    if (requirementMatch) {
-      finalizeRequirement();
-      requirementCount += 1;
-      currentRequirement = requirementMatch[1]?.trim() ?? "unknown";
-      currentRequirementScenarios = 0;
-      continue;
-    }
-
-    const scenarioMatch = line.match(SCENARIO_HEADING_PATTERN);
-    if (scenarioMatch) {
-      scenarioCount += 1;
-      currentRequirementScenarios += 1;
-      continue;
-    }
-
-    if (BAD_SCENARIO_PATTERNS.some((pattern) => pattern.test(line))) {
-      errors.push(`${relPath}: scenarios must use "#### Scenario:" headings`);
-    }
-  }
-
-  finalizeRequirement();
-
-  if (sectionCount === 0) {
-    errors.push(`${relPath}: must include at least one "## ADDED|MODIFIED|REMOVED|RENAMED Requirements" section`);
-  }
-  if (requirementCount === 0) {
-    errors.push(`${relPath}: must include at least one "### Requirement:" heading`);
-  }
-  if (scenarioCount === 0) {
-    errors.push(`${relPath}: must include at least one "#### Scenario:" heading`);
-  }
 }
 
 async function buildChangeSummary(repoRoot: string, changeId: string): Promise<PlanChangeSummary> {
@@ -242,15 +283,8 @@ export async function validatePlanningChange(repoRoot: string, changeId: string)
     };
   }
 
-  if (!(await pathExists(paths.proposalPath))) {
-    errors.push("missing required file: proposal.md");
-  }
-  if (!(await pathExists(paths.tasksPath))) {
-    errors.push("missing required file: tasks.md");
-  }
-  if (!(await pathExists(paths.specsDir))) {
-    errors.push("missing required directory: specs/");
-  }
+  const tree = await inspectChangeTree(paths);
+  errors.push(...tree.errors);
 
   const proposal = await fs.readFile(paths.proposalPath, "utf8").catch(() => "");
   if (proposal.length > 0) {
@@ -265,15 +299,24 @@ export async function validatePlanningChange(repoRoot: string, changeId: string)
     warnings.push("tasks.md does not contain any checkbox tasks");
   }
 
-  const specFiles = await listSpecFiles(paths.specsDir).catch(() => []);
-  if (specFiles.length === 0) {
-    errors.push("specs/ must contain at least one delta spec file");
-  }
-
-  for (const filePath of specFiles) {
+  for (const filePath of tree.specFiles) {
     const relPath = path.relative(paths.changeDir, filePath).split(path.sep).join("/");
     const content = await fs.readFile(filePath, "utf8").catch(() => "");
-    validateSpecContent(content, relPath, errors);
+    const parsed = parseDeltaSpec(content, relPath);
+    errors.push(...parsed.errors);
+    if (parsed.errors.length > 0) continue;
+
+    const capability = path.basename(path.dirname(filePath));
+    const currentSpecPath = resolvePlanningPath(repoRoot, "specs", capability, "spec.md");
+    const currentContent = await fs.readFile(currentSpecPath, "utf8").catch(() => undefined);
+    const applied = applyDeltaToCurrentSpec({
+      capability,
+      changeId,
+      delta: parsed.delta,
+      currentContent,
+      currentRelPath: path.relative(repoRoot, currentSpecPath).split(path.sep).join("/"),
+    });
+    errors.push(...applied.errors);
   }
 
   return {
@@ -281,7 +324,7 @@ export async function validatePlanningChange(repoRoot: string, changeId: string)
     change_id: changeId,
     errors,
     warnings,
-    delta_count: specFiles.length,
+    delta_count: tree.specFiles.length,
     task_status: taskStatus,
   };
 }

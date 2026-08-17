@@ -220,6 +220,7 @@ function validateArtifactShape(value: unknown, index: number, errors: string[]):
 export async function validateManifest(manifestPath: string, artifactsDir: string): Promise<ManifestValidationResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const repoRoot = path.dirname(path.dirname(manifestPath));
 
   let raw: unknown;
   try {
@@ -292,6 +293,19 @@ export async function validateManifest(manifestPath: string, artifactsDir: strin
 
     if (seenFiles.has(item.filename)) errors.push(`duplicate artifact filename: ${item.filename}`);
     seenFiles.add(item.filename);
+
+    for (const outputPath of item.derived_outputs ?? []) {
+      const isRepositoryRelative =
+        !path.isAbsolute(outputPath) &&
+        relativePathSafe(outputPath) &&
+        !/^[a-z][a-z0-9+.-]*:/i.test(outputPath);
+      if (!isRepositoryRelative) continue;
+
+      const outputStat = await fs.stat(path.resolve(repoRoot, outputPath)).catch(() => null);
+      if (!outputStat?.isFile()) {
+        errors.push(`artifacts[${index}] derived_outputs file is missing or not a file: ${outputPath}`);
+      }
+    }
 
     if (!relativePathSafe(item.filename)) {
       errors.push(`artifacts[${index}].filename must be a safe relative path`);

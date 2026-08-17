@@ -345,7 +345,7 @@ reffy plan create \
 #    - proposal.md: Why / What Changes / Impact / Reffy References
 #    - design.md: decisions, data model, open questions
 #    - tasks.md: implementation + verification checklists
-#    - specs/<capability>/spec.md: ADDED / MODIFIED / REMOVED requirements
+#    - specs/<capability>/spec.md: ADDED / MODIFIED / REMOVED / RENAMED requirements
 #      with at least one Scenario each
 
 # 4. Validate before implementing. Catches missing scenarios, malformed
@@ -359,6 +359,28 @@ reffy plan validate add-login-flow
 #    the delta spec(s) into the canonical specs in
 #    .reffy/reffyspec/specs/.
 reffy plan archive add-login-flow
+```
+
+The active-change tree is exhaustive:
+
+```text
+.reffy/reffyspec/changes/<change-id>/
+├── proposal.md
+├── tasks.md
+├── design.md                         # optional
+└── specs/
+    └── <capability>/
+        └── spec.md
+```
+
+Additional change-local files and directories are not supported. Put durable architecture and operational decisions in `design.md`, actionable checklists in `tasks.md`, and exploratory material in indexed `.reffy/artifacts/`. Repositories that previously relied on arbitrary sibling documents must consolidate or relocate them before `reffy plan validate` or `reffy plan archive` will succeed.
+
+Renames use paired source and destination headings; they can be followed by a `MODIFIED` block under the new name:
+
+```md
+## RENAMED Requirements
+- FROM: `### Requirement: Login`
+- TO: `### Requirement: User Authentication`
 ```
 
 Useful side commands during the arc:

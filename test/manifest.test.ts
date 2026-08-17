@@ -168,6 +168,9 @@ describe("manifest module", () => {
       filename: "trace.md",
       content: "trace me",
     });
+    const outputPath = path.join(repo.repoRoot, ".reffy", "reffyspec", "changes", "add-traceability", "proposal.md");
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, "# Change: Add traceability\n", "utf8");
 
     await writeFile(
       repo.manifestPath,
@@ -194,6 +197,48 @@ describe("manifest module", () => {
 
     const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
     expect(result.ok).toBe(true);
+  });
+
+  it("rejects missing or non-file repository-relative derived outputs", async () => {
+    const repo = await createTempRepo();
+    const artifact = await addArtifact(repo, {
+      filename: "broken-trace.md",
+      content: "trace me",
+    });
+    const directoryOutput = path.join(repo.repoRoot, ".reffy", "reffyspec", "changes", "directory-output");
+    await mkdir(directoryOutput, { recursive: true });
+
+    await writeFile(
+      repo.manifestPath,
+      JSON.stringify(
+        {
+          version: 1,
+          created_at: artifact.created_at,
+          updated_at: artifact.updated_at,
+          ...deriveManifestIdentity(repo.repoRoot),
+          artifacts: [
+            {
+              ...artifact,
+              derived_outputs: [
+                ".reffy/reffyspec/changes/missing/proposal.md",
+                ".reffy/reffyspec/changes/directory-output",
+                "https://example.invalid/external-output",
+              ],
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const result = await validateManifest(repo.manifestPath, repo.artifactsDir);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      "artifacts[0] derived_outputs file is missing or not a file: .reffy/reffyspec/changes/missing/proposal.md",
+      "artifacts[0] derived_outputs file is missing or not a file: .reffy/reffyspec/changes/directory-output",
+    ]);
   });
 
   it("fails when present identity fields are malformed", async () => {
