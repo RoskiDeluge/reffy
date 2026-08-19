@@ -35,7 +35,7 @@ Command summary:
 - `reffy plan validate|list|show|archive`: manages the planning lifecycle under `.reffy/reffyspec/`.
 - `reffy spec list|show`: inspects current spec state under `.reffy/reffyspec/`.
 - `reffy skill list|show|create|validate`: lists, prints, scaffolds, and validates task-oriented skills under `.reffy/skills/`.
-- `reffy remote init|status|push|ls|cat|snapshot`: links, publishes, and inspects a Paseo-backed remote `.reffy/` workspace.
+- `reffy remote init|status|push|ls|cat|snapshot`: links, publishes, and inspects a [Paseo-backed remote `.reffy/` workspace](.reffy/artifacts/paseo-backed-remote-workspace.md).
 - `reffy remote workspace create|get` and `reffy remote project register|list`: control-plane operations against the workspace manager actor.
 - `reffy diagram render`: renders Mermaid diagrams as SVG or ASCII, including spec-aware generation from compatible `spec.md` files.
 
@@ -151,7 +151,7 @@ reffy skill validate                   # check the frontmatter contract for ever
 
 ## Remote Sync
 
-Reffy can publish the local `.reffy/` workspace to a Paseo-backed remote workspace and inspect it later with native CLI commands.
+Reffy can publish the local `.reffy/` workspace to a [Paseo-backed remote workspace](.reffy/artifacts/paseo-backed-remote-workspace.md) and inspect it later with native CLI commands. The linked overview explains what the optional remote provides, how it relates to local-first Reffy, and the current access model.
 
 The Paseo remote splits into two actor surfaces:
 
