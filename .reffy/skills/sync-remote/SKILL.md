@@ -1,7 +1,7 @@
 ---
 name: sync-remote
 description: Publish and inspect the local .reffy/ workspace on a Paseo-backed remote.
-triggers: ["remote sync", "push workspace", "paseo", "remote status"]
+triggers: ["remote sync", "remote workspace", "push workspace", "publish workspace", "paseo", "remote status", "shared references", "publish references"]
 commands: ["reffy remote init", "reffy remote status", "reffy remote push", "reffy remote snapshot"]
 managed: true
 ---

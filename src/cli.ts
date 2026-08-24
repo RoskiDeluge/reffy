@@ -73,13 +73,21 @@ Always open \`@/${refsDirName}/AGENTS.md\` when the request:
 - Mentions early-stage ideation, exploration, brainstorming, or raw notes
 - Needs context before drafting specs or proposals
 - Refers to "reffy", "references", "explore", or "context layer"
+- Involves a remote workspace, remote synchronization, shared-reference publication, or Paseo
 
 Use \`@/${refsDirName}/AGENTS.md\` to learn:
 - Reffy workflow for ideation, artifact indexing, and planning scaffolds
 - How Reffy owns the runtime while preserving ReffySpec planning files
 - How to store and consume ideation context in \`${refsDirName}/\`
 
-Before performing a Reffy workflow, check \`${refsDirName}/skills/\` (or run \`reffy skill list\`) and follow the matching skill.
+Before performing any Reffy workflow:
+
+1. Inspect \`${refsDirName}/skills/\` (or run \`reffy skill list\`) to enumerate available skills.
+2. Match the request against each skill's \`description\` and \`triggers\`.
+3. Read the selected \`SKILL.md\` completely.
+4. Follow that skill before running Reffy commands.
+
+For remote workspace, remote sync, shared-reference publication, or Paseo requests, read \`@/${refsDirName}/skills/sync-remote/SKILL.md\` first. Loading these instructions does not authorize a remote push or other mutation; execute remote commands only when the request calls for them.
 
 Keep this managed block so \`reffy init\` can refresh the instructions.
 
@@ -119,7 +127,18 @@ These instructions are for AI assistants working in this project.
 - Add/update exploratory artifacts and keep them concise.
 - Run \`reffy reindex\` and \`reffy validate\` after artifact changes.
 - Use \`reffy summarize --output json\` and \`reffy plan create\` to turn artifact context into planning scaffolds.
-- Before performing a Reffy workflow, check \`${refsDirName}/skills/\` (or run \`reffy skill list\`) and follow the matching skill.
+- Before performing a Reffy workflow, complete the Skill Discovery Prerequisite below.
+
+## Skill Discovery Prerequisite
+
+Before running Reffy commands:
+
+1. Inspect \`${refsDirName}/skills/\` (or run \`reffy skill list\`) to enumerate available skills.
+2. Match the request against each skill's \`description\` and \`triggers\`.
+3. Read the selected \`SKILL.md\` completely.
+4. Follow that skill before running Reffy commands.
+
+For remote workspace, remote sync, shared-reference publication, or Paseo requests, read \`${refsDirName}/skills/sync-remote/SKILL.md\` first. Loading these instructions does not authorize a remote push or other mutation; execute remote commands only when the request calls for them.
 
 ## When To Use Reffy
 
@@ -127,6 +146,7 @@ Use Reffy first when the request:
 - Mentions early-stage ideation, exploration, brainstorming, or raw notes
 - Needs context gathering before drafting a concrete implementation plan
 - Refers to "reffy", "references", "explore", "context layer", or research artifacts
+- Involves a remote workspace, remote synchronization, shared-reference publication, or Paseo
 
 ## When To Skip Reffy
 

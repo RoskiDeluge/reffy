@@ -476,7 +476,16 @@ Use this before drafting a change or implementing behavior, to confirm what the 
   {
     name: "sync-remote",
     description: "Publish and inspect the local .reffy/ workspace on a Paseo-backed remote.",
-    triggers: ["remote sync", "push workspace", "paseo", "remote status"],
+    triggers: [
+      "remote sync",
+      "remote workspace",
+      "push workspace",
+      "publish workspace",
+      "paseo",
+      "remote status",
+      "shared references",
+      "publish references",
+    ],
     commands: ["reffy remote init", "reffy remote status", "reffy remote push", "reffy remote snapshot"],
     body: `## When to use this skill
 Use this to link, publish, or inspect the shared remote workspace projection.

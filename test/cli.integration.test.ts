@@ -360,9 +360,16 @@ describe("cli init", () => {
 
     expect(rootAgents).toContain("owns the runtime");
     expect(rootAgents).toContain("`@/.reffy/reffyspec/AGENTS.md`");
+    expect(rootAgents).toContain("remote workspace, remote synchronization, shared-reference publication, or Paseo");
+    expect(rootAgents).toContain("Match the request against each skill's `description` and `triggers`.");
+    expect(rootAgents).toContain("`@/.reffy/skills/sync-remote/SKILL.md`");
+    expect(rootAgents).toContain("does not authorize a remote push or other mutation");
     expect(reffyAgents).toContain("Reffy owns ideation artifacts, manifest metadata, and native planning scaffolds.");
     expect(reffyAgents).toContain("Reffy is the primary runtime authority for this project.");
     expect(reffyAgents).toContain("ReffySpec files live under `.reffy/reffyspec/` as the canonical planning layout.");
+    expect(reffyAgents).toContain("## Skill Discovery Prerequisite");
+    expect(reffyAgents).toContain("Match the request against each skill's `description` and `triggers`.");
+    expect(reffyAgents).toContain("`.reffy/skills/sync-remote/SKILL.md`");
     expect(reffyspecAgents).toContain("`.reffy/reffyspec/specs/`");
   });
 
@@ -1347,12 +1354,45 @@ describe("cli skill", () => {
     expect(init.code).toBe(0);
 
     const list = await runCli(["skill", "list", "--repo", repo.repoRoot, "--output", "json"]);
-    const payload = JSON.parse(list.stdout) as { skills: { name: string; managed: boolean }[] };
+    const payload = JSON.parse(list.stdout) as { skills: { name: string; managed: boolean; triggers: string[] }[] };
     expect(payload.skills.map((s) => s.name)).toContain("create-change");
     expect(payload.skills.every((s) => s.managed)).toBe(true);
+    expect(payload.skills.find((skill) => skill.name === "sync-remote")?.triggers).toEqual(
+      expect.arrayContaining(["remote sync", "remote workspace", "paseo", "shared references", "publish references"]),
+    );
 
     const rootAgents = await readFile(path.join(repo.repoRoot, "AGENTS.md"), "utf8");
     expect(rootAgents).toContain("reffy skill list");
+    expect(rootAgents).toContain("`@/.reffy/skills/sync-remote/SKILL.md`");
+  });
+
+  it("re-init refreshes managed remote routing while preserving user-owned content", async () => {
+    const repo = await createTempRepo();
+    await runCli(["init", "--repo", repo.repoRoot]);
+    await runCli(["skill", "create", "my-flow", "--repo", repo.repoRoot]);
+
+    const rootAgentsPath = path.join(repo.repoRoot, "AGENTS.md");
+    const rootAgents = await readFile(rootAgentsPath, "utf8");
+    await overwriteFile(rootAgentsPath, `${rootAgents.trimEnd()}\n\n# User-owned instructions\nKeep this section.\n`);
+
+    const remoteSkillPath = path.join(repo.repoRoot, ".reffy", "skills", "sync-remote", "SKILL.md");
+    await overwriteFile(
+      remoteSkillPath,
+      `---\nname: sync-remote\ndescription: Legacy remote guidance.\ntriggers: ["legacy remote"]\nmanaged: true\n---\n\nLegacy body.\n`,
+    );
+
+    const reinit = await runCli(["init", "--repo", repo.repoRoot]);
+    expect(reinit.code).toBe(0);
+
+    const refreshedRootAgents = await readFile(rootAgentsPath, "utf8");
+    expect(refreshedRootAgents).toContain("# User-owned instructions\nKeep this section.");
+    expect(refreshedRootAgents).toContain("`@/.reffy/skills/sync-remote/SKILL.md`");
+
+    const refreshedRemoteSkill = await readFile(remoteSkillPath, "utf8");
+    expect(refreshedRemoteSkill).toContain('"remote workspace"');
+    expect(refreshedRemoteSkill).toContain('"shared references"');
+    expect(refreshedRemoteSkill).not.toContain("Legacy body.");
+    await expect(access(path.join(repo.repoRoot, ".reffy", "skills", "my-flow", "SKILL.md"))).resolves.toBeUndefined();
   });
 
   it("show prints a managed skill body and json descriptor", async () => {

@@ -17,6 +17,7 @@ The system SHALL define `.reffy/skills/` as part of the workspace contract, wher
 - **WHEN** Reffy enumerates available skills
 - **THEN** it discovers them by scanning `.reffy/skills/` directories
 - **AND** it does NOT require any corresponding entry in `.reffy/manifest.json`
+
 ### Requirement: SKILL.md Frontmatter Contract
 Each `SKILL.md` MUST begin with YAML frontmatter carrying `name`, `description`, and `triggers`, MAY declare `commands`, and MAY set `managed`. `triggers` MUST contain at least one entry. The frontmatter serves as the index so an agent can decide whether to load the body without reading it.
 
@@ -38,6 +39,7 @@ Each `SKILL.md` MUST begin with YAML frontmatter carrying `name`, `description`,
 - **WHEN** a skill sets `managed: true`
 - **THEN** the skill is treated as CLI-owned and eligible for refresh on `reffy init`
 - **AND** a skill that omits the flag is treated as user-owned and never modified by the CLI
+
 ### Requirement: Managed Skill Scaffolding on Init
 `reffy init` SHALL create `.reffy/skills/` and write the built-in managed skills covering the core workflows. Re-running `init` SHALL refresh managed skill bodies in place and SHALL NOT modify or remove unmanaged skills.
 
@@ -50,6 +52,7 @@ Each `SKILL.md` MUST begin with YAML frontmatter carrying `name`, `description`,
 - **WHEN** a user has added an unmanaged skill and runs `reffy init` again
 - **THEN** managed skill bodies are regenerated in place
 - **AND** the unmanaged skill is left unchanged
+
 ### Requirement: Skill Command Group
 The CLI SHALL provide a `reffy skill` command group with `list`, `show <name>`, `create <name>`, and `validate [<name>]` subcommands. `list` and `show` MUST support `--output json`, emitting a harness-native descriptor shape (`name`, `description`, `triggers`, `commands`, `managed`, `path`) rather than an HTTP/OpenAPI schema.
 
@@ -72,6 +75,7 @@ The CLI SHALL provide a `reffy skill` command group with `list`, `show <name>`, 
 - **WHEN** a user runs `reffy skill validate`
 - **THEN** the CLI checks every skill against the frontmatter contract and reports violations
 - **AND** running it with a name validates only that skill
+
 ### Requirement: Skills Validation in `reffy validate`
 `reffy validate` SHALL extend to the skills contract, enforcing required frontmatter fields, unique skill names, and kebab-case directory names that match each skill's `name`.
 
@@ -87,6 +91,7 @@ The CLI SHALL provide a `reffy skill` command group with `list`, `show <name>`, 
 #### Scenario: Duplicate skill names
 - **WHEN** two skills declare the same `name`
 - **THEN** `reffy validate` reports a uniqueness violation
+
 ### Requirement: Command-Reference Staleness in `reffy doctor`
 `reffy doctor` SHALL cross-check each skill's declared `commands` against the command table of the installed CLI and warn when a skill references a command or flag the installed version does not provide.
 
@@ -97,13 +102,27 @@ The CLI SHALL provide a `reffy skill` command group with `list`, `show <name>`, 
 #### Scenario: All references current
 - **WHEN** every skill's declared commands exist in the installed CLI command table
 - **THEN** `reffy doctor` reports no skill staleness warnings
-### Requirement: Skill Discovery Wiring in Managed AGENTS.md
-The managed `AGENTS.md` blocks SHALL include a stable paragraph directing agents to check `.reffy/skills/` (or run `reffy skill list`) and follow the matching skill before performing a Reffy workflow, keeping the always-loaded instruction surface small.
 
-#### Scenario: Discovery paragraph present after init
-- **WHEN** `reffy init` writes or refreshes the managed `AGENTS.md` blocks
-- **THEN** the managed block contains the skill-discovery routing paragraph
-- **AND** the procedure detail itself lives in the on-demand skill files rather than inline in the block
+### Requirement: Skill Discovery Wiring in Managed AGENTS.md
+The managed root `AGENTS.md` Reffy block and managed `.reffy/AGENTS.md` guidance SHALL direct agents through an ordered skill-discovery prerequisite before performing a Reffy workflow: enumerate `.reffy/skills/` (or run `reffy skill list`), match request intent against skill descriptions and triggers, read the selected `SKILL.md`, and then follow that skill before running Reffy commands. The always-loaded instruction surface SHALL recognize common Reffy remote-workspace intent and SHALL keep task procedure details in the on-demand skill files.
+
+#### Scenario: Ordered discovery guidance is present after init
+- **WHEN** `reffy init` writes or refreshes the managed `AGENTS.md` content
+- **THEN** the root Reffy block and `.reffy/AGENTS.md` describe skill enumeration, intent matching, and selected-skill loading as ordered steps before Reffy commands run
+- **AND** the guidance permits either direct filesystem inspection of `.reffy/skills/` or `reffy skill list` for enumeration
+- **AND** task procedure detail remains in the selected on-demand `SKILL.md` rather than being duplicated inline
+
+#### Scenario: Remote workspace intent routes to the remote skill
+- **WHEN** `reffy init` writes or refreshes the managed root `AGENTS.md` block
+- **THEN** the block recognizes remote workspace, remote synchronization, shared-reference publication, and Paseo language as Reffy intent
+- **AND** the block directs remote-workspace requests to `.reffy/skills/sync-remote/SKILL.md`
+- **AND** the block does not direct the harness to execute a remote mutation merely because the instructions were loaded
+
+#### Scenario: Reinitialization refreshes routing safely
+- **WHEN** a repository with existing managed Reffy instructions runs `reffy init` again
+- **THEN** Reffy refreshes the ordered discovery and remote routing language in its managed regions
+- **AND** unrelated user-authored `AGENTS.md` content remains unchanged
+
 ### Requirement: Skills Are Not a Source of Capability Truth
 Skills SHALL reference specs and commands rather than restating capability requirements, and the system SHALL NOT execute skill steps in this version.
 
@@ -115,6 +134,7 @@ Skills SHALL reference specs and commands rather than restating capability requi
 - **WHEN** a skill is loaded
 - **THEN** it is treated as instructions plus optional support files
 - **AND** the CLI does not execute the skill's steps automatically
+
 ### Requirement: Supersede-Change Managed Skill
 The built-in managed skill set SHALL include a `supersede-change` skill that recognizes direction-change intent and routes it to the superseding-change procedure. Its frontmatter `triggers` MUST cover pivot, deprecation, wind-down, and reversal language so an agent following skill discovery selects it from natural-language intent.
 
@@ -127,3 +147,16 @@ The built-in managed skill set SHALL include a `supersede-change` skill that rec
 - **WHEN** the `supersede-change` skill body is followed
 - **THEN** it instructs landing a new change rather than editing or deleting an archived change
 - **AND** it treats the spec delta as the authoritative record and `## Supersedes` as a navigational pointer
+
+### Requirement: Remote Sync Skill Intent Coverage
+The built-in managed `sync-remote` skill SHALL advertise trigger metadata covering common requests to inspect or publish a Reffy remote workspace, including remote synchronization, remote workspace, Paseo, and shared-reference language.
+
+#### Scenario: Common remote request selects sync-remote
+- **WHEN** an agent enumerates skills for a request that mentions a remote workspace, remote sync, Paseo, shared references, or publishing references
+- **THEN** the `sync-remote` description and triggers identify it as the matching managed skill
+- **AND** the agent can load its `SKILL.md` for the environment, authentication, identity, and publication procedure
+
+#### Scenario: Managed trigger metadata refreshes on init
+- **WHEN** `reffy init` runs in a repository with an older managed `sync-remote` skill
+- **THEN** Reffy refreshes the managed skill with the current remote intent triggers
+- **AND** unmanaged skills remain unchanged

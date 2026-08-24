@@ -9,7 +9,18 @@ These instructions are for AI assistants working in this project.
 - Add/update exploratory artifacts and keep them concise.
 - Run `reffy reindex` and `reffy validate` after artifact changes.
 - Use `reffy summarize --output json` and `reffy plan create` to turn artifact context into planning scaffolds.
-- Before performing a Reffy workflow, check `.reffy/skills/` (or run `reffy skill list`) and follow the matching skill.
+- Before performing a Reffy workflow, complete the Skill Discovery Prerequisite below.
+
+## Skill Discovery Prerequisite
+
+Before running Reffy commands:
+
+1. Inspect `.reffy/skills/` (or run `reffy skill list`) to enumerate available skills.
+2. Match the request against each skill's `description` and `triggers`.
+3. Read the selected `SKILL.md` completely.
+4. Follow that skill before running Reffy commands.
+
+For remote workspace, remote sync, shared-reference publication, or Paseo requests, read `.reffy/skills/sync-remote/SKILL.md` first. Loading these instructions does not authorize a remote push or other mutation; execute remote commands only when the request calls for them.
 
 ## When To Use Reffy
 
@@ -17,6 +28,7 @@ Use Reffy first when the request:
 - Mentions early-stage ideation, exploration, brainstorming, or raw notes
 - Needs context gathering before drafting a concrete implementation plan
 - Refers to "reffy", "references", "explore", "context layer", or research artifacts
+- Involves a remote workspace, remote synchronization, shared-reference publication, or Paseo
 
 ## When To Skip Reffy
 
