@@ -20,5 +20,5 @@
 ## 3. Verification and release
 - [x] 3.1 Run `pnpm build`, `pnpm check`, and `pnpm test`.
 - [x] 3.2 Run `reffy plan validate require-paseo-provisioning-credential`.
-- [ ] 3.3 Release v1.9.5 and report the version back to paseo-core `require-provisioning-credential` task 3.3.
-- [ ] 3.4 After paseo-core deploys, verify `reffy remote init --provision` against a scratch workspace id succeeds with the credential and fails with the provisioning hint without it.
+- [x] 3.3 Release v1.9.5 and report the version back to paseo-core `require-provisioning-credential` task 3.3.
+- [x] 3.4 After paseo-core deploys, verify `reffy remote init --provision` against a scratch workspace id succeeds with the credential and fails with the provisioning hint without it.

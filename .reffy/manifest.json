@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-10-01T08:06:07.476Z",
+  "updated_at": "2026-10-01T08:33:47.912Z",
   "project_id": "reffy",
   "workspace_ids": [
     "nuveris-v1"
@@ -494,16 +494,38 @@
       "size_bytes": 6962,
       "tags": [],
       "created_at": "2026-10-01T08:00:05.688Z",
-      "updated_at": "2026-10-01T08:00:05.824Z",
+      "updated_at": "2026-10-01T08:33:47.851Z",
       "related_changes": [
         "require-paseo-provisioning-credential"
       ],
       "derived_outputs": [
-        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/proposal.md",
-        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/tasks.md",
-        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/design.md",
-        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/specs/remote-workspace-manager/spec.md"
+        ".reffy/reffyspec/changes/archive/2026-10-01-require-paseo-provisioning-credential/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-10-01-require-paseo-provisioning-credential/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-10-01-require-paseo-provisioning-credential/design.md",
+        ".reffy/reffyspec/changes/archive/2026-10-01-require-paseo-provisioning-credential/specs/remote-workspace-manager/spec.md"
       ]
+    },
+    {
+      "id": "73372b21-f80c-4bc1-bdad-d251262c615c",
+      "name": "reffy v1 9 5 provisioning credential release",
+      "filename": "reffy-v1-9-5-provisioning-credential-release.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 4131,
+      "tags": [],
+      "created_at": "2026-10-01T08:13:23.780Z",
+      "updated_at": "2026-10-01T08:13:23.780Z"
+    },
+    {
+      "id": "b17c8147-673e-4f2c-a4fe-f18ae7d46028",
+      "name": "reffy provisioning credential rollout verification",
+      "filename": "reffy-provisioning-credential-rollout-verification.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 3161,
+      "tags": [],
+      "created_at": "2026-10-01T08:33:47.912Z",
+      "updated_at": "2026-10-01T08:33:47.912Z"
     }
   ]
 }
