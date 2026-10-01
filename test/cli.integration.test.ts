@@ -1,4 +1,6 @@
 import { execFile, spawn } from "node:child_process";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { access, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
@@ -1442,5 +1444,175 @@ describe("cli skill", () => {
 
     const doctor = await runCli(["doctor", "--repo", repo.repoRoot]);
     expect(doctor.stdout).toContain("stale skill command references");
+  });
+});
+
+describe("remote init provisioning credential", () => {
+  type SeenRequest = { method: string; path: string; auth: string | null };
+  type ActorCreationReply = { status: number; body: string };
+
+  // A minimal fake Paseo deployment. Actor creation replies with `onCreateActor`; the
+  // manager routes used by `remote init` succeed so a full run can complete.
+  async function startFakePaseo(onCreateActor: (auth: string | null) => ActorCreationReply): Promise<{
+    endpoint: string;
+    seen: SeenRequest[];
+    close: () => Promise<void>;
+  }> {
+    const seen: SeenRequest[] = [];
+    const server = createServer((req, res) => {
+      const pathname = new URL(req.url ?? "/", "http://fake").pathname;
+      const auth = req.headers.authorization ?? null;
+      seen.push({ method: req.method ?? "GET", path: pathname, auth });
+      req.resume();
+      req.on("end", () => {
+        const send = (status: number, body: unknown) => {
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(typeof body === "string" ? body : JSON.stringify(body));
+        };
+        if (req.method === "POST" && pathname === "/pods") return send(200, { podName: "pod-new" });
+        if (req.method === "POST" && /^\/pods\/[^/]+\/actors$/.test(pathname)) {
+          const reply = onCreateActor(auth);
+          return send(reply.status, reply.body);
+        }
+        if (req.method === "POST" && /\/workspaces$/.test(pathname)) {
+          return send(200, { workspace: { workspace_id: "ws", backend: { pod_name: "pod-ws", actor_id: "actor-ws" } } });
+        }
+        if (req.method === "POST" && /\/workspaces\/[^/]+\/projects\/[^/]+$/.test(pathname)) {
+          return send(200, { ok: true });
+        }
+        return send(404, "not found");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    return {
+      endpoint: `http://127.0.0.1:${String(port)}`,
+      seen,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  const acceptCredential = (auth: string | null): ActorCreationReply =>
+    auth === "Bearer prov-secret"
+      ? { status: 200, body: JSON.stringify({ actorId: "actor-new", managerAuthToken: "minted-manager-token" }) }
+      : { status: 401, body: "Unauthorized" };
+
+  async function writeEnv(repoRoot: string, lines: string[]): Promise<void> {
+    await writeFile(path.join(repoRoot, ".env"), `${lines.join("\n")}\n`, "utf8");
+  }
+
+  it("provisions with PASEO_PROVISIONING_TOKEN and never persists it", async () => {
+    const repo = await createTempRepo();
+    const paseo = await startFakePaseo(acceptCredential);
+    try {
+      await writeEnv(repo.repoRoot, [`PASEO_ENDPOINT="${paseo.endpoint}"`, 'PASEO_PROVISIONING_TOKEN="prov-secret"']);
+      const result = await runCli(["remote", "init", "--provision", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(0);
+      const parsed = JSON.parse(result.stdout) as { created_manager_actor: boolean; manager_token: string };
+      expect(parsed.created_manager_actor).toBe(true);
+      expect(parsed.manager_token).toBe("minted-manager-token");
+      expect(result.stdout).not.toContain("prov-secret");
+
+      // The provisioning credential appears on actor creation and nowhere else.
+      const withProvisioning = paseo.seen.filter((req) => req.auth === "Bearer prov-secret");
+      expect(withProvisioning).toEqual([{ method: "POST", path: "/pods/pod-new/actors", auth: "Bearer prov-secret" }]);
+      expect(paseo.seen.find((req) => req.path === "/pods")?.auth).toBeNull();
+      const managerCalls = paseo.seen.filter((req) => req.path.startsWith("/pods/pod-new/actors/actor-new/"));
+      expect(managerCalls.length).toBeGreaterThan(0);
+      for (const call of managerCalls) expect(call.auth).toBe("Bearer minted-manager-token");
+
+      const persisted = await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8");
+      expect(persisted).not.toContain("prov-secret");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("fails init --provision without PASEO_PROVISIONING_TOKEN before any request", async () => {
+    const repo = await createTempRepo();
+    const paseo = await startFakePaseo(acceptCredential);
+    try {
+      // PASEO_TOKEN must not stand in for the provisioning credential.
+      await writeEnv(repo.repoRoot, [`PASEO_ENDPOINT="${paseo.endpoint}"`, 'PASEO_TOKEN="manager-token"']);
+      const result = await runCli(["remote", "init", "--provision", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(1);
+      const parsed = JSON.parse(result.stdout) as { error: string };
+      expect(parsed.error).toContain("requires PASEO_PROVISIONING_TOKEN");
+      expect(parsed.error).toContain("held by the Paseo operator");
+      expect(paseo.seen).toEqual([]);
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("joins an existing manager without PASEO_PROVISIONING_TOKEN and never sends it", async () => {
+    const repo = await createTempRepo();
+    const paseo = await startFakePaseo(acceptCredential);
+    try {
+      await writeEnv(repo.repoRoot, [
+        `PASEO_ENDPOINT="${paseo.endpoint}"`,
+        'PASEO_TOKEN="manager-token"',
+        'PASEO_PROVISIONING_TOKEN="prov-secret"',
+      ]);
+      const result = await runCli([
+        "remote", "init", "--manager-pod", "pod-mgr", "--manager-actor", "actor-mgr",
+        "--repo", repo.repoRoot, "--output", "json",
+      ]);
+      expect(result.code).toBe(0);
+      expect(paseo.seen.length).toBeGreaterThan(0);
+      expect(paseo.seen.some((req) => /^\/pods(\/[^/]+\/actors)?$/.test(req.path))).toBe(false);
+      for (const req of paseo.seen) expect(req.auth).toBe("Bearer manager-token");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("maps a 401 on actor creation to the provisioning hint, not the PASEO_TOKEN hint", async () => {
+    const repo = await createTempRepo();
+    const paseo = await startFakePaseo(acceptCredential);
+    try {
+      await writeEnv(repo.repoRoot, [`PASEO_ENDPOINT="${paseo.endpoint}"`, 'PASEO_PROVISIONING_TOKEN="wrong-secret"']);
+      const result = await runCli(["remote", "init", "--provision", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(1);
+      const parsed = JSON.parse(result.stdout) as { error: string };
+      expect(parsed.error).toContain("Paseo rejected the provisioning credential");
+      expect(parsed.error).toContain("PASEO_PROVISIONING_TOKEN");
+      expect(parsed.error).not.toContain("Check that PASEO_TOKEN");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("maps a 503 provisioning_not_configured on actor creation to the operator hint", async () => {
+    const repo = await createTempRepo();
+    const paseo = await startFakePaseo(() => ({
+      status: 503,
+      body: JSON.stringify({ ok: false, error: { code: "provisioning_not_configured", message: "not configured" } }),
+    }));
+    try {
+      await writeEnv(repo.repoRoot, [`PASEO_ENDPOINT="${paseo.endpoint}"`, 'PASEO_PROVISIONING_TOKEN="prov-secret"']);
+      const result = await runCli(["remote", "init", "--provision", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(1);
+      const parsed = JSON.parse(result.stdout) as { error: string };
+      expect(parsed.error).toContain("no provisioning credential configured");
+      expect(parsed.error).toContain("Worker secret");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("tolerates a non-JSON 503 on actor creation", async () => {
+    const repo = await createTempRepo();
+    const paseo = await startFakePaseo(() => ({ status: 503, body: "Service Unavailable" }));
+    try {
+      await writeEnv(repo.repoRoot, [`PASEO_ENDPOINT="${paseo.endpoint}"`, 'PASEO_PROVISIONING_TOKEN="prov-secret"']);
+      const result = await runCli(["remote", "init", "--provision", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(1);
+      const parsed = JSON.parse(result.stdout) as { error: string };
+      expect(parsed.error).toContain("503");
+      expect(parsed.error).not.toContain("no provisioning credential configured");
+    } finally {
+      await paseo.close();
+    }
   });
 });

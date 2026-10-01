@@ -493,6 +493,10 @@ Use this to link, publish, or inspect the shared remote workspace projection.
 ## Required environment
 - \`PASEO_ENDPOINT\` — the Paseo endpoint URL (never persisted).
 - \`PASEO_TOKEN\` — the bearer token (never persisted by the CLI).
+- \`PASEO_PROVISIONING_TOKEN\` — the deployment provisioning credential, needed
+  only for \`reffy remote init --provision\` when it creates a manager actor. Held
+  by the Paseo operator; never persisted by the CLI and never a substitute for
+  \`PASEO_TOKEN\`.
 
 Provide them either by exporting them in your shell or by placing them in a
 \`.env\` file at the repo root — every \`reffy remote\` command auto-loads \`.env\`

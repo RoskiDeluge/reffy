@@ -395,11 +395,13 @@ export class PaseoManagerClient {
     return result.podName.trim();
   }
 
-  async createManagerActor(podName: string): Promise<CreateManagerActorResult> {
+  async createManagerActor(podName: string, provisioningToken: string): Promise<CreateManagerActorResult> {
     const result = await httpJson<{ actorId: string; managerAuthToken: string }>(
       `${this.endpoint}/pods/${podName}/actors`,
       {
         method: "POST",
+        // Actor creation is gated by the deployment provisioning credential, not the manager token.
+        token: provisioningToken,
         body: JSON.stringify({
           config: {
             actorType: REMOTE_MANAGER_ACTOR_TYPE,
@@ -599,6 +601,8 @@ export interface EnsureManagerInitOptions {
   managerActorId?: string;
   provision: boolean;
   existingConfig: RemoteLinkConfig | null;
+  // Required only when a manager actor will be created. Sent on that one request; never persisted.
+  provisioningToken?: string;
 }
 
 export interface EnsureManagerInitResult {
@@ -608,6 +612,9 @@ export interface EnsureManagerInitResult {
   /** Bearer token returned by the backend when a fresh manager actor was created. Only set when `created_actor` is true. */
   manager_auth_token?: string;
 }
+
+export const PROVISIONING_TOKEN_REQUIRED_MESSAGE =
+  "`reffy remote init --provision` creates a Paseo manager actor, which requires PASEO_PROVISIONING_TOKEN (the deployment's provisioning credential, held by the Paseo operator). Add it to your .env or export it, then retry. The CLI never persists it.";
 
 export async function ensureManagerInit(
   repoRoot: string,
@@ -631,7 +638,15 @@ export async function ensureManagerInit(
     );
   }
 
-  // createPod and createManagerActor do not require a bearer token; the manager actor itself issues the token.
+  // Check the provisioning credential before any request so a missing credential
+  // never leaves an orphaned pod behind.
+  const provisioningToken = options.provisioningToken?.trim() ?? "";
+  if (!actorId && options.provision && !provisioningToken) {
+    throw new Error(PROVISIONING_TOKEN_REQUIRED_MESSAGE);
+  }
+
+  // createPod is unauthenticated. createManagerActor requires the deployment provisioning
+  // credential (PASEO_PROVISIONING_TOKEN); the manager actor it creates issues the manager token.
   const provisioner = new PaseoManagerClient(endpoint, {
     pod_name: podName || "pending-pod",
     actor_id: actorId || "pending-actor",
@@ -651,7 +666,7 @@ export async function ensureManagerInit(
     const result = await new PaseoManagerClient(endpoint, {
       pod_name: podName,
       actor_id: "pending-actor",
-    }).createManagerActor(podName);
+    }).createManagerActor(podName, provisioningToken);
     actorId = result.actorId;
     manager_auth_token = result.managerAuthToken;
     created_actor = true;

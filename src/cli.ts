@@ -20,6 +20,7 @@ import {
   extractWorkspaceSummaryIdentity,
   PaseoManagerClient,
   PaseoWorkspaceBackendClient,
+  PROVISIONING_TOKEN_REQUIRED_MESSAGE,
   readRemoteConfig,
   RemoteHttpError,
   removeWorkspaceTarget,
@@ -1020,6 +1021,26 @@ function resolvePaseoToken(opts: { required: boolean }): string | undefined {
   return token;
 }
 
+// The provisioning credential gates manager actor creation only. It is a different credential
+// from PASEO_TOKEN with a different holder, so neither ever falls back to the other.
+function resolvePaseoProvisioningToken(opts: { required: boolean }): string | undefined {
+  const token = process.env.PASEO_PROVISIONING_TOKEN?.trim() || undefined;
+  if (opts.required && !token) {
+    throw new Error(PROVISIONING_TOKEN_REQUIRED_MESSAGE);
+  }
+  return token;
+}
+
+function parseRemoteErrorCode(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body) as { error?: { code?: unknown } } | null;
+    const code = parsed?.error?.code;
+    return typeof code === "string" ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function findRemoteHttpError(error: unknown): RemoteHttpError | null {
   if (error instanceof RemoteHttpError) return error;
   if (error instanceof Error && error.cause) return findRemoteHttpError(error.cause);
@@ -1043,6 +1064,19 @@ function decorateRemoteError(error: unknown, fallback: string): string {
   const projectRouteMatch = /\/projects\/[^/]+(?:\/|$)/.test(pathname);
   const workspacesRouteMatch = /\/workspaces\/[^/]+(?:\/|$)/.test(pathname);
   const backendProjectMatch = /\/workspace\/projects\/[^/]+/.test(pathname);
+  // Manager actor creation is `POST /pods/{pod}/actors` with nothing after `actors`; it is
+  // authenticated with PASEO_PROVISIONING_TOKEN, so the generic PASEO_TOKEN hint would mislead.
+  const actorCreationMatch =
+    httpError.method.toUpperCase() === "POST" && /\/pods\/[^/]+\/actors\/?$/.test(pathname);
+
+  if (actorCreationMatch) {
+    if (httpError.status === 401) {
+      return `${fallback}\nPaseo rejected the provisioning credential. Check that PASEO_PROVISIONING_TOKEN matches the deployment's provisioning secret.`;
+    }
+    if (httpError.status === 503 && parseRemoteErrorCode(httpError.body) === "provisioning_not_configured") {
+      return `${fallback}\nThis Paseo deployment has no provisioning credential configured. The operator must set PASEO_PROVISIONING_TOKEN as a Worker secret before managers can be created.`;
+    }
+  }
 
   if (httpError.status === 401) {
     return `${fallback}\nAuthorization rejected by Paseo. Check that PASEO_TOKEN matches the current manager token in your team secret store, and that it is exported into the shell running reffy.`;
@@ -1355,6 +1389,10 @@ async function main(): Promise<number> {
           parsed.provision &&
           !(parsed.managerActor ?? process.env.PASEO_MANAGER_ACTOR ?? savedConfig?.manager.actor_id);
         const tokenFromEnv = resolvePaseoToken({ required: !willMintToken });
+        // Resolved only when this run creates the manager actor, so it is never sent otherwise.
+        const provisioningToken = willMintToken
+          ? resolvePaseoProvisioningToken({ required: true })
+          : undefined;
 
         const managerInit = await ensureManagerInit(parsed.repoRoot, {
           endpoint,
@@ -1362,6 +1400,7 @@ async function main(): Promise<number> {
           managerActorId: parsed.managerActor ?? process.env.PASEO_MANAGER_ACTOR,
           provision: parsed.provision,
           existingConfig: savedConfig,
+          provisioningToken,
         });
 
         const effectiveToken = managerInit.manager_auth_token ?? tokenFromEnv;

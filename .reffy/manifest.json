@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-08-24T02:21:15.089Z",
+  "updated_at": "2026-10-01T08:06:07.476Z",
   "project_id": "reffy",
   "workspace_ids": [
     "nuveris-v1"
@@ -484,6 +484,26 @@
       "tags": [],
       "created_at": "2026-08-19T20:48:30.083Z",
       "updated_at": "2026-08-19T20:48:30.083Z"
+    },
+    {
+      "id": "1dc697f7-4989-4ee5-8f4d-65efd5ac3621",
+      "name": "paseo provisioning credential handoff",
+      "filename": "paseo-provisioning-credential-handoff.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 6962,
+      "tags": [],
+      "created_at": "2026-10-01T08:00:05.688Z",
+      "updated_at": "2026-10-01T08:00:05.824Z",
+      "related_changes": [
+        "require-paseo-provisioning-credential"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/proposal.md",
+        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/tasks.md",
+        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/design.md",
+        ".reffy/reffyspec/changes/require-paseo-provisioning-credential/specs/remote-workspace-manager/spec.md"
+      ]
     }
   ]
 }

@@ -173,7 +173,7 @@ The current remote flow is:
 
 ### Bearer-token authentication
 
-Every Paseo request from the CLI carries `Authorization: Bearer ${PASEO_TOKEN}`. The token is the only thing that grants access — manager / workspace-backend identifiers in `.reffy/state/remote.json` are inert without it.
+Every Paseo request from the CLI carries `Authorization: Bearer ${PASEO_TOKEN}`, except the two provisioning calls made by `reffy remote init --provision`: `POST /pods` is unauthenticated, and `POST /pods/{pod}/actors` carries the provisioning credential (see below). The token is the only thing that grants access — manager / workspace-backend identifiers in `.reffy/state/remote.json` are inert without it.
 
 Required env for any remote command:
 
@@ -187,10 +187,12 @@ Both must be present; the CLI fails fast and names the missing variable before i
 ### First-time provisioning
 
 ```bash
-PASEO_ENDPOINT="https://your-paseo-endpoint.example" reffy remote init --provision
+PASEO_ENDPOINT="https://your-paseo-endpoint.example" \
+PASEO_PROVISIONING_TOKEN="<provisioning credential from the Paseo operator>" \
+  reffy remote init --provision
 ```
 
-`--provision` creates a fresh pod and `reffyWorkspaceManager.v1` actor. The manager mints a bearer token and the CLI prints it once with strong "save this now" guidance. Save it to your team secret store immediately — the CLI does not keep a copy.
+`--provision` creates a fresh pod and `reffyWorkspaceManager.v1` actor. Creating the actor requires `PASEO_PROVISIONING_TOKEN`, the deployment's provisioning credential held by the Paseo operator. The CLI sends it only on the actor-creation request, never persists it, and never uses it in place of `PASEO_TOKEN` (or vice versa). If it is missing, `init --provision` fails before any network call. Joining an existing manager does not need it. The manager mints a bearer token and the CLI prints it once with strong "save this now" guidance. Save it to your team secret store immediately — the CLI does not keep a copy.
 
 After provisioning, export it for subsequent commands:
 

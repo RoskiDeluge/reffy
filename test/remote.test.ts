@@ -1,11 +1,12 @@
 import path from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
 import {
   assertWorkspaceSummaryIdentity,
   collectWorkspaceDocuments,
+  ensureManagerInit,
   ensureWorkspaceTarget,
   extractWorkspaceSummaryIdentity,
   PaseoManagerClient,
@@ -441,5 +442,124 @@ describe("manager + workspace backend clients", () => {
           "",
         ),
     ).toThrow(/PASEO_TOKEN/);
+  });
+});
+
+describe("manager provisioning credential", () => {
+  type SeenRequest = { method: string; url: string; auth: string | null };
+
+  function installFakeFetch(
+    handler: (req: SeenRequest) => { status?: number; body: unknown },
+  ): { seen: SeenRequest[]; restore: () => void } {
+    const seen: SeenRequest[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req: SeenRequest = {
+        method: init?.method ?? "GET",
+        url: typeof input === "string" ? input : input.toString(),
+        auth: new Headers(init?.headers ?? {}).get("Authorization"),
+      };
+      seen.push(req);
+      const { status = 200, body } = handler(req);
+      return new Response(typeof body === "string" ? body : JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+    return { seen, restore: () => (globalThis.fetch = originalFetch) };
+  }
+
+  function provisioningHandler(req: SeenRequest): { status?: number; body: unknown } {
+    if (req.url.endsWith("/pods")) return { body: { podName: "pod-new" } };
+    if (/\/pods\/[^/]+\/actors$/.test(req.url)) {
+      return { body: { actorId: "actor-new", managerAuthToken: "minted-manager-token" } };
+    }
+    return { status: 500, body: "unexpected request" };
+  }
+
+  it("createManagerActor sends the provisioning credential as a bearer token", async () => {
+    const fake = installFakeFetch(provisioningHandler);
+    try {
+      const client = new PaseoManagerClient("https://paseo.example", { pod_name: "pod-new", actor_id: "pending-actor" });
+      const result = await client.createManagerActor("pod-new", "prov-secret");
+      expect(result).toEqual({ actorId: "actor-new", managerAuthToken: "minted-manager-token" });
+    } finally {
+      fake.restore();
+    }
+    expect(fake.seen).toEqual([
+      { method: "POST", url: "https://paseo.example/pods/pod-new/actors", auth: "Bearer prov-secret" },
+    ]);
+  });
+
+  it("createPod sends no Authorization header", async () => {
+    const fake = installFakeFetch(provisioningHandler);
+    try {
+      const client = new PaseoManagerClient("https://paseo.example", { pod_name: "pending-pod", actor_id: "pending-actor" });
+      expect(await client.createPod()).toBe("pod-new");
+    } finally {
+      fake.restore();
+    }
+    expect(fake.seen).toEqual([{ method: "POST", url: "https://paseo.example/pods", auth: null }]);
+  });
+
+  it("ensureManagerInit --provision sends the credential only on actor creation and never persists it", async () => {
+    const repo = await createTempRepo();
+    const fake = installFakeFetch(provisioningHandler);
+    let result;
+    try {
+      result = await ensureManagerInit(repo.repoRoot, {
+        endpoint: "https://paseo.example",
+        provision: true,
+        existingConfig: null,
+        provisioningToken: "  prov-secret  ",
+      });
+    } finally {
+      fake.restore();
+    }
+    expect(result.manager_auth_token).toBe("minted-manager-token");
+    expect(fake.seen).toEqual([
+      { method: "POST", url: "https://paseo.example/pods", auth: null },
+      { method: "POST", url: "https://paseo.example/pods/pod-new/actors", auth: "Bearer prov-secret" },
+    ]);
+    const persisted = await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8");
+    expect(persisted).not.toContain("prov-secret");
+    expect(persisted).not.toContain("minted-manager-token");
+  });
+
+  it("ensureManagerInit --provision without a credential fails before any request", async () => {
+    const repo = await createTempRepo();
+    const fake = installFakeFetch(provisioningHandler);
+    try {
+      await expect(
+        ensureManagerInit(repo.repoRoot, {
+          endpoint: "https://paseo.example",
+          provision: true,
+          existingConfig: null,
+          provisioningToken: "   ",
+        }),
+      ).rejects.toThrow(/requires PASEO_PROVISIONING_TOKEN/);
+    } finally {
+      fake.restore();
+    }
+    expect(fake.seen).toEqual([]);
+  });
+
+  it("ensureManagerInit with an existing manager needs no credential and makes no provisioning calls", async () => {
+    const repo = await createTempRepo();
+    const fake = installFakeFetch(provisioningHandler);
+    try {
+      const result = await ensureManagerInit(repo.repoRoot, {
+        endpoint: "https://paseo.example",
+        managerPodName: "pod-mgr",
+        managerActorId: "actor-mgr",
+        provision: true,
+        existingConfig: null,
+      });
+      expect(result.created_actor).toBe(false);
+      expect(result.config.manager).toEqual({ pod_name: "pod-mgr", actor_id: "actor-mgr" });
+    } finally {
+      fake.restore();
+    }
+    expect(fake.seen).toEqual([]);
   });
 });
