@@ -1,6 +1,6 @@
 {
   "name": "reffy-cli",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "packageManager": "pnpm@10.34.5",
   "description": "Planning system for AI assisted development.",
   "keywords": [
