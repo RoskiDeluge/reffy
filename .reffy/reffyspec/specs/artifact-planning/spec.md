@@ -12,6 +12,7 @@ The system SHALL provide a planning workflow that generates OpenSpec-style plann
 - **WHEN** a user invokes the planning generation workflow against indexed artifacts
 - **THEN** the system produces planning scaffolds derived from the selected artifact context
 - **AND** the generated outputs are suitable for use within the repository's OpenSpec change workflow
+
 ### Requirement: Minimum V1 Planning Outputs
 The planning subsystem SHALL generate, at minimum, a proposal scaffold, a tasks scaffold, and spec delta scaffolds, plus any required boilerplate needed for managed instructions or manifest-linked planning references.
 
@@ -19,6 +20,7 @@ The planning subsystem SHALL generate, at minimum, a proposal scaffold, a tasks 
 - **WHEN** the user generates a planning scaffold for a proposed change
 - **THEN** the output includes `proposal.md`, `tasks.md`, and one or more spec delta files
 - **AND** any required boilerplate needed by the workflow is generated consistently
+
 ### Requirement: Artifact Traceability In Generated Plans
 Generated planning outputs MUST preserve traceability back to the Reffy artifacts that informed them.
 
@@ -26,6 +28,7 @@ Generated planning outputs MUST preserve traceability back to the Reffy artifact
 - **WHEN** the system creates planning outputs from indexed artifacts
 - **THEN** the generated proposal or equivalent design note includes explicit references to the source artifacts used
 - **AND** the traceability format is stable enough for review and automation
+
 ### Requirement: Harness-Agnostic Planning UX
 The planning subsystem SHALL expose its primary capabilities through stable CLI commands rather than harness-specific slash commands.
 
@@ -33,6 +36,7 @@ The planning subsystem SHALL expose its primary capabilities through stable CLI 
 - **WHEN** a user inspects the CLI help or planning command help
 - **THEN** the available planning workflow is expressed as standard command verbs and flags
 - **AND** the workflow does not require a harness-specific slash command abstraction
+
 ### Requirement: Prototype-Safe Artifact Section Parsing
 The planning subsystem SHALL parse indexed Markdown artifacts without failing when a normalized heading matches an inherited `Object.prototype` property name.
 
@@ -46,3 +50,15 @@ The planning subsystem SHALL parse indexed Markdown artifacts without failing wh
 - **WHEN** `reffy plan create` processes indexed artifacts and one artifact contains a heading whose normalized form matches another inherited object key such as `toString` or `hasOwnProperty`
 - **THEN** section parsing treats that heading as ordinary artifact input
 - **AND** planning generation remains available for the full indexed workspace
+
+### Requirement: Derived Planning Output Integrity
+The system MUST treat repository-relative artifact `derived_outputs` values as integrity links to local planning files.
+
+#### Scenario: Derived output target exists
+- **WHEN** `reffy validate` inspects a repository-relative `derived_outputs` entry whose target is an existing file
+- **THEN** the link passes derived-output integrity validation
+
+#### Scenario: Derived output target is missing or not a file
+- **WHEN** `reffy validate` inspects a repository-relative `derived_outputs` entry whose target is absent or is not a file
+- **THEN** validation exits non-zero
+- **AND** the error identifies the artifact and invalid output path

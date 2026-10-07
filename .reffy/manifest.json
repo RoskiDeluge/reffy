@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-10-01T08:33:47.912Z",
+  "updated_at": "2026-10-07T02:27:41.568Z",
   "project_id": "reffy",
   "workspace_ids": [
     "nuveris-v1"
@@ -460,18 +460,18 @@
       "size_bytes": 8171,
       "tags": [],
       "created_at": "2026-08-16T23:51:46.564Z",
-      "updated_at": "2026-08-16T23:51:46.686Z",
+      "updated_at": "2026-10-07T02:27:41.568Z",
       "related_changes": [
         "harden-reffyspec-change-contracts"
       ],
       "derived_outputs": [
-        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/proposal.md",
-        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/tasks.md",
-        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/design.md",
-        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/artifact-planning/spec.md",
-        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/planning-archive/spec.md",
-        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/planning-validation/spec.md",
-        ".reffy/reffyspec/changes/harden-reffyspec-change-contracts/specs/reffyspec-layout/spec.md"
+        ".reffy/reffyspec/changes/archive/2026-10-07-harden-reffyspec-change-contracts/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-10-07-harden-reffyspec-change-contracts/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-10-07-harden-reffyspec-change-contracts/design.md",
+        ".reffy/reffyspec/changes/archive/2026-10-07-harden-reffyspec-change-contracts/specs/artifact-planning/spec.md",
+        ".reffy/reffyspec/changes/archive/2026-10-07-harden-reffyspec-change-contracts/specs/planning-archive/spec.md",
+        ".reffy/reffyspec/changes/archive/2026-10-07-harden-reffyspec-change-contracts/specs/planning-validation/spec.md",
+        ".reffy/reffyspec/changes/archive/2026-10-07-harden-reffyspec-change-contracts/specs/reffyspec-layout/spec.md"
       ]
     },
     {
@@ -484,6 +484,39 @@
       "tags": [],
       "created_at": "2026-08-19T20:48:30.083Z",
       "updated_at": "2026-08-19T20:48:30.083Z"
+    },
+    {
+      "id": "f655d093-d663-41b7-90fa-47a56831fa37",
+      "name": "agent skills standard audit",
+      "filename": "agent-skills-standard-audit.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 5184,
+      "tags": [],
+      "created_at": "2026-09-10T01:22:18.030Z",
+      "updated_at": "2026-09-10T01:22:18.030Z"
+    },
+    {
+      "id": "9b49fd8f-6b35-49b6-8156-ec099ef3aaab",
+      "name": "seed first project entry point",
+      "filename": "seed-first-project-entry-point.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 4273,
+      "tags": [],
+      "created_at": "2026-09-11T19:53:30.071Z",
+      "updated_at": "2026-09-11T19:53:30.071Z"
+    },
+    {
+      "id": "01b036b5-7f83-45cb-9aef-ae55d34d7af1",
+      "name": "assistant native skill installation paths",
+      "filename": "assistant-native-skill-installation-paths.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 1366,
+      "tags": [],
+      "created_at": "2026-09-29T20:29:06.624Z",
+      "updated_at": "2026-09-29T20:29:06.624Z"
     },
     {
       "id": "1dc697f7-4989-4ee5-8f4d-65efd5ac3621",
