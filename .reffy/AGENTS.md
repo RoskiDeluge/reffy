@@ -16,9 +16,11 @@ These instructions are for AI assistants working in this project.
 Before running Reffy commands:
 
 1. Inspect `.reffy/skills/` (or run `reffy skill list`) to enumerate available skills.
-2. Match the request against each skill's `description` and `triggers`.
+2. Match the request against each skill's `description`; optional triggers are supplementary.
 3. Read the selected `SKILL.md` completely.
 4. Follow that skill before running Reffy commands.
+
+Use `reffy skill list --output json` for programmatic discovery. Resolve supporting file references relative to the selected skill directory.
 
 For remote workspace, remote sync, shared-reference publication, or Paseo requests, read `.reffy/skills/sync-remote/SKILL.md` first. Loading these instructions does not authorize a remote push or other mutation; execute remote commands only when the request calls for them.
 

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-10-07T02:27:41.568Z",
+  "updated_at": "2026-10-20T01:24:41.267Z",
   "project_id": "reffy",
   "workspace_ids": [
     "nuveris-v1"
@@ -491,10 +491,19 @@
       "filename": "agent-skills-standard-audit.md",
       "kind": "note",
       "mime_type": "text/markdown",
-      "size_bytes": 5184,
+      "size_bytes": 11451,
       "tags": [],
       "created_at": "2026-09-10T01:22:18.030Z",
-      "updated_at": "2026-09-10T01:22:18.030Z"
+      "updated_at": "2026-10-20T01:24:37.943Z",
+      "related_changes": [
+        "refactor-skills-directory"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/design.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/specs/skills-directory/spec.md"
+      ]
     },
     {
       "id": "9b49fd8f-6b35-49b6-8156-ec099ef3aaab",
@@ -516,7 +525,16 @@
       "size_bytes": 1366,
       "tags": [],
       "created_at": "2026-09-29T20:29:06.624Z",
-      "updated_at": "2026-09-29T20:29:06.624Z"
+      "updated_at": "2026-10-20T01:24:37.943Z",
+      "related_changes": [
+        "refactor-skills-directory"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/design.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-refactor-skills-directory/specs/skills-directory/spec.md"
+      ]
     },
     {
       "id": "1dc697f7-4989-4ee5-8f4d-65efd5ac3621",
@@ -559,6 +577,26 @@
       "tags": [],
       "created_at": "2026-10-01T08:33:47.912Z",
       "updated_at": "2026-10-01T08:33:47.912Z"
+    },
+    {
+      "id": "2fde2677-277c-4d17-8253-d46d698129f0",
+      "name": "release changelog automation",
+      "filename": "release-changelog-automation.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 1632,
+      "tags": [],
+      "created_at": "2026-10-20T01:17:08.676Z",
+      "updated_at": "2026-10-20T01:24:41.267Z",
+      "related_changes": [
+        "add-release-changelog"
+      ],
+      "derived_outputs": [
+        ".reffy/reffyspec/changes/archive/2026-10-20-add-release-changelog/proposal.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-add-release-changelog/tasks.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-add-release-changelog/design.md",
+        ".reffy/reffyspec/changes/archive/2026-10-20-add-release-changelog/specs/release-changelog/spec.md"
+      ]
     }
   ]
 }

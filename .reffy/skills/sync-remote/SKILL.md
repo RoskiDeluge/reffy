@@ -1,9 +1,11 @@
 ---
 name: sync-remote
-description: Publish and inspect the local .reffy/ workspace on a Paseo-backed remote.
-triggers: ["remote sync", "remote workspace", "push workspace", "publish workspace", "paseo", "remote status", "shared references", "publish references"]
-commands: ["reffy remote init", "reffy remote status", "reffy remote push", "reffy remote snapshot"]
-managed: true
+description: Link, inspect, and publish a Reffy remote workspace backed by Paseo. Use for remote sync, remote status, remote workspace inspection, shared references, or requests to push a workspace, publish references, or synchronize shared context.
+compatibility: Requires the Reffy CLI and an initialized Reffy workspace.
+metadata:
+  reffy-managed: "true"
+  reffy-commands: '["reffy remote init","reffy remote status","reffy remote push","reffy remote snapshot"]'
+  reffy-triggers: '["remote sync","remote workspace","push workspace","publish workspace","paseo","remote status","shared references","publish references"]'
 ---
 
 ## When to use this skill

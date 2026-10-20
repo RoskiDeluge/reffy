@@ -363,14 +363,14 @@ describe("cli init", () => {
     expect(rootAgents).toContain("owns the runtime");
     expect(rootAgents).toContain("`@/.reffy/reffyspec/AGENTS.md`");
     expect(rootAgents).toContain("remote workspace, remote synchronization, shared-reference publication, or Paseo");
-    expect(rootAgents).toContain("Match the request against each skill's `description` and `triggers`.");
+    expect(rootAgents).toContain("Match the request against each skill's `description`; optional triggers are supplementary.");
     expect(rootAgents).toContain("`@/.reffy/skills/sync-remote/SKILL.md`");
     expect(rootAgents).toContain("does not authorize a remote push or other mutation");
     expect(reffyAgents).toContain("Reffy owns ideation artifacts, manifest metadata, and native planning scaffolds.");
     expect(reffyAgents).toContain("Reffy is the primary runtime authority for this project.");
     expect(reffyAgents).toContain("ReffySpec files live under `.reffy/reffyspec/` as the canonical planning layout.");
     expect(reffyAgents).toContain("## Skill Discovery Prerequisite");
-    expect(reffyAgents).toContain("Match the request against each skill's `description` and `triggers`.");
+    expect(reffyAgents).toContain("Match the request against each skill's `description`; optional triggers are supplementary.");
     expect(reffyAgents).toContain("`.reffy/skills/sync-remote/SKILL.md`");
     expect(reffyspecAgents).toContain("`.reffy/reffyspec/specs/`");
   });
@@ -1442,6 +1442,7 @@ describe("cli skill", () => {
     expect(validate.code).toBe(1);
     expect(validate.stderr).toContain("Skills invalid");
 
+    await writeFile(path.join(dir, "SKILL.md"), '---\nname: broken\ndescription: Valid instruction header.\ncommands: ["reffy frobnicate"]\n---\nbody');
     const doctor = await runCli(["doctor", "--repo", repo.repoRoot]);
     expect(doctor.stdout).toContain("stale skill command references");
   });

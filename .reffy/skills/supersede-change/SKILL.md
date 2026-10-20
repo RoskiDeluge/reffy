@@ -1,9 +1,11 @@
 ---
 name: supersede-change
-description: Represent a pivot, deprecation, or reversal as a new change that supersedes a prior one.
-triggers: ["pivot", "change direction", "deprecate", "wind down", "reverse the decision", "supersede", "replace the approach", "abandon"]
-commands: ["reffy plan list", "reffy plan create", "reffy plan validate", "reffy plan archive"]
-managed: true
+description: Create a change that supersedes a prior decision. Use for a pivot, deprecation, wind-down, reversal, abandoning an approach, or requests to change direction, deprecate, wind down, or replace prior behavior.
+compatibility: Requires the Reffy CLI and an initialized Reffy workspace.
+metadata:
+  reffy-managed: "true"
+  reffy-commands: '["reffy plan list","reffy plan create","reffy plan validate","reffy plan archive"]'
+  reffy-triggers: '["pivot","change direction","deprecate","wind down","reverse the decision","supersede","replace the approach","abandon"]'
 ---
 
 ## When to use this skill

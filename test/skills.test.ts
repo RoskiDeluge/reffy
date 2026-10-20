@@ -68,7 +68,7 @@ describe("scaffoldManagedSkills", () => {
 
     // user edits a managed skill and adds an unmanaged one
     const managedPath = path.join(repo.repoRoot, ".reffy", "skills", "diagnose", "SKILL.md");
-    await writeFile(managedPath, "tampered", "utf8");
+    await writeFile(managedPath, '---\nname: diagnose\ndescription: Old body.\nmanaged: true\n---\ntampered', "utf8");
     await writeSkill(repo.repoRoot, "my-skill", ['---', 'name: my-skill', 'description: mine', 'triggers: ["x"]', 'managed: false', '---', 'body'].join("\n"));
 
     const result = await scaffoldManagedSkills(repo.repoRoot);
@@ -89,14 +89,14 @@ describe("validateSkills", () => {
     expect(result.skill_count).toBe(MANAGED_SKILLS.length);
   });
 
-  it("flags missing description, empty triggers, and name/dir mismatch", async () => {
+  it("flags missing description and name/dir mismatch", async () => {
     const repo = await createTempRepo();
     await writeSkill(repo.repoRoot, "broken", ['---', 'name: wrong-name', 'triggers: []', 'managed: false', '---', 'body'].join("\n"));
     const result = await validateSkills(repo.repoRoot);
     expect(result.ok).toBe(false);
     const fields = result.issues.map((i) => i.field);
     expect(fields).toContain("description");
-    expect(fields).toContain("triggers");
+    expect(fields).not.toContain("triggers");
     expect(fields).toContain("name");
   });
 

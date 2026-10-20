@@ -1,0 +1,73 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Next stable version (X.Y.Z, without v)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Prepare version and changelog
+        id: prepare
+        env:
+          NEXT_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/changelog.mjs prepare "$NEXT_VERSION"
+          if git diff --quiet -- package.json CHANGELOG.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release pull request
+        if: steps.prepare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_VERSION: ${{ inputs.version }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          RELEASE_BRANCH="release/v${NEXT_VERSION}"
+          git switch -c "$RELEASE_BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json CHANGELOG.md
+          git commit -m "Release v${NEXT_VERSION}"
+          if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" > /dev/null; then
+            echo "Release branch already exists. Review its PR or delete the obsolete branch before preparing again."
+            exit 1
+          fi
+          git push origin "$RELEASE_BRANCH"
+          node scripts/changelog.mjs notes "v${NEXT_VERSION}" > "$RUNNER_TEMP/release-pr.md"
+          gh pr create --base "$BASE_BRANCH" --head "$RELEASE_BRANCH" --title "Release v${NEXT_VERSION}" --body-file "$RUNNER_TEMP/release-pr.md"
+
+      - name: Dispatch CI for release branch
+        if: steps.prepare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_VERSION: ${{ inputs.version }}
+        run: gh workflow run ci.yml --ref "release/v${NEXT_VERSION}"

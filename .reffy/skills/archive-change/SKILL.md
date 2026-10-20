@@ -1,9 +1,11 @@
 ---
 name: archive-change
-description: Complete and archive a shipped ReffySpec change, merging its delta into canonical specs.
-triggers: ["archive change", "ship change", "plan archive", "merge spec"]
-commands: ["reffy plan validate", "reffy plan archive", "reffy spec show"]
-managed: true
+description: Archive an implemented and verified ReffySpec change and merge its delta into canonical specs. Use when asked to archive a change, finish shipped work, or merge a completed spec delta.
+compatibility: Requires the Reffy CLI and an initialized Reffy workspace.
+metadata:
+  reffy-managed: "true"
+  reffy-commands: '["reffy plan validate","reffy plan archive","reffy spec show"]'
+  reffy-triggers: '["archive change","ship change","plan archive","merge spec"]'
 ---
 
 ## When to use this skill

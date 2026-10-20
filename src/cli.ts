@@ -36,11 +36,13 @@ import {
 import { DEFAULT_REFS_DIRNAME, detectWorkspaceState, looksLikeRefsDir } from "./refs-paths.js";
 import {
   createSkill,
-  discoverSkills,
-  findSkill,
+  discoverSkillsWithDiagnostics,
+  skillDescriptor,
+  migrateSkills,
   scaffoldManagedSkills,
   validateSkills,
 } from "./skills.js";
+import { exportSkills } from "./skill-export.js";
 import { prepareCanonicalPlanningLayout } from "./planning-workspace.js";
 import { ReferencesStore } from "./storage.js";
 import { listSpecs, showSpec } from "./spec-runtime.js";
@@ -84,9 +86,11 @@ Use \`@/${refsDirName}/AGENTS.md\` to learn:
 Before performing any Reffy workflow:
 
 1. Inspect \`${refsDirName}/skills/\` (or run \`reffy skill list\`) to enumerate available skills.
-2. Match the request against each skill's \`description\` and \`triggers\`.
+2. Match the request against each skill's \`description\`; optional triggers are supplementary.
 3. Read the selected \`SKILL.md\` completely.
 4. Follow that skill before running Reffy commands.
+
+Use \`reffy skill list --output json\` for programmatic discovery. Resolve supporting file references relative to the selected skill directory.
 
 For remote workspace, remote sync, shared-reference publication, or Paseo requests, read \`@/${refsDirName}/skills/sync-remote/SKILL.md\` first. Loading these instructions does not authorize a remote push or other mutation; execute remote commands only when the request calls for them.
 
@@ -135,9 +139,11 @@ These instructions are for AI assistants working in this project.
 Before running Reffy commands:
 
 1. Inspect \`${refsDirName}/skills/\` (or run \`reffy skill list\`) to enumerate available skills.
-2. Match the request against each skill's \`description\` and \`triggers\`.
+2. Match the request against each skill's \`description\`; optional triggers are supplementary.
 3. Read the selected \`SKILL.md\` completely.
 4. Follow that skill before running Reffy commands.
+
+Use \`reffy skill list --output json\` for programmatic discovery. Resolve supporting file references relative to the selected skill directory.
 
 For remote workspace, remote sync, shared-reference publication, or Paseo requests, read \`${refsDirName}/skills/sync-remote/SKILL.md\` first. Loading these instructions does not authorize a remote push or other mutation; execute remote commands only when the request calls for them.
 
@@ -449,7 +455,7 @@ function getPlanPositionalArgs(argv: string[]): string[] {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--repo" || arg === "--output" || arg === "--change-id" || arg === "--title" || arg === "--artifacts") {
+    if (arg === "--repo" || arg === "--output" || arg === "--change-id" || arg === "--title" || arg === "--artifacts" || arg === "--target") {
       i += 1;
       continue;
     }
@@ -459,6 +465,7 @@ function getPlanPositionalArgs(argv: string[]): string[] {
       arg.startsWith("--change-id=") ||
       arg.startsWith("--title=") ||
       arg.startsWith("--artifacts=") ||
+      arg.startsWith("--target=") ||
       arg === "--json" ||
       arg === "--all" ||
       arg === "--force"
@@ -623,7 +630,9 @@ function skillUsage(): string {
     "  reffy skill list [--repo PATH] [--output text|json]",
     "  reffy skill show <name> [--repo PATH] [--output text|json]",
     "  reffy skill create <name> [--repo PATH] [--output text|json]",
-    "  reffy skill validate [<name>] [--repo PATH] [--output text|json]",
+    "  reffy skill validate [<name>] [--standard] [--repo PATH] [--output text|json]",
+    "  reffy skill migrate [<name>] [--repo PATH] [--output text|json]",
+    "  reffy skill export --target agents [--repo PATH] [--output text|json]",
   ].join("\n");
 }
 
@@ -1984,65 +1993,53 @@ async function main(): Promise<number> {
     await prepareCanonicalWorkspace(repoRoot);
     const positionals = getPlanPositionalArgs(skillArgs);
 
-    if (subcommand === "list") {
-      const skills = await discoverSkills(repoRoot);
-      const descriptors = skills.map(({ name, description, triggers, commands, managed, path: relPath }) => ({
-        name,
-        description,
-        triggers,
-        commands,
-        managed,
-        path: relPath,
-      }));
-      if (output === "json") {
-        printResult(output, { status: "ok", command: "skill", subcommand: "list", skills: descriptors });
-      } else if (descriptors.length === 0) {
-        console.log("Skills:");
-        console.log("- (none)");
-      } else {
-        console.log("Skills:");
-        for (const skill of descriptors) {
-          console.log(`- ${skill.name}${skill.managed ? " [managed]" : ""} - ${skill.description}`);
-        }
+    if (subcommand === "list" || subcommand === "show") {
+      const { skills, diagnostics } = await discoverSkillsWithDiagnostics(repoRoot);
+      if (output !== "json") {
+        for (const diagnostic of diagnostics) console.error(`${diagnostic.severity}: ${diagnostic.skill} (${diagnostic.field ?? "header"}): ${diagnostic.message}`);
       }
+      if (subcommand === "list") {
+        const descriptors = skills.map(skillDescriptor);
+        if (output === "json") printResult(output, { status: "ok", command: "skill", subcommand, skills: descriptors, diagnostics });
+        else {
+          console.log("Skills:");
+          if (!descriptors.length) console.log("- (none)");
+          for (const skill of descriptors) console.log(`- ${skill.name}${skill.managed ? " [managed]" : ""} - ${skill.description}\n  ${skill.path}`);
+        }
+        return 0;
+      }
+      const name = positionals[0];
+      const skill = skills.find(skill => skill.name === name);
+      if (!skill) {
+        const error = name ? `skill "${name}" not found or invalid` : "reffy skill show requires a skill name";
+        if (output === "json") printResult(output, { status: "error", command: "skill", subcommand, error, diagnostics });
+        else console.error(error);
+        return 1;
+      }
+      if (output === "json") printResult(output, { status: "ok", command: "skill", subcommand, skill: { ...skillDescriptor(skill), body: skill.body }, diagnostics });
+      else console.log(skill.body.trim());
       return 0;
     }
 
-    if (subcommand === "show") {
-      const name = positionals[0];
-      if (!name) {
-        console.error("reffy skill show requires a skill name");
-        console.error(skillUsage());
-        return 1;
-      }
-      const skill = await findSkill(repoRoot, name);
-      if (!skill) {
-        if (output === "json") {
-          printResult(output, { status: "error", command: "skill", subcommand: "show", error: `skill "${name}" not found` });
-        } else {
-          console.error(`Skill "${name}" not found`);
+    if (subcommand === "migrate" || subcommand === "export") {
+      try {
+        let result;
+        if (subcommand === "migrate") result = await migrateSkills(repoRoot, positionals[0]);
+        else {
+          const targetIndex = skillArgs.indexOf("--target");
+          const target = targetIndex >= 0 ? skillArgs[targetIndex + 1] : skillArgs.find(a => a.startsWith("--target="))?.slice(9);
+          if (!target) throw new Error("reffy skill export requires --target agents");
+          result = await exportSkills(repoRoot, target);
         }
+        if (output === "json") printResult(output, { status: "ok", command: "skill", subcommand, ...result });
+        else console.log(JSON.stringify(result, null, 2));
+        return 0;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (output === "json") printResult(output, { status: "error", command: "skill", subcommand, error: message });
+        else console.error(message);
         return 1;
       }
-      if (output === "json") {
-        printResult(output, {
-          status: "ok",
-          command: "skill",
-          subcommand: "show",
-          skill: {
-            name: skill.name,
-            description: skill.description,
-            triggers: skill.triggers,
-            commands: skill.commands,
-            managed: skill.managed,
-            path: skill.path,
-            body: skill.body,
-          },
-        });
-      } else {
-        console.log(skill.body.trim());
-      }
-      return 0;
     }
 
     if (subcommand === "create") {
@@ -2073,8 +2070,9 @@ async function main(): Promise<number> {
 
     if (subcommand === "validate") {
       const name = positionals[0];
-      const result = await validateSkills(repoRoot, name);
-      const payload = { status: result.ok ? "ok" : "error", command: "skill", subcommand: "validate", ...result };
+      const result = await validateSkills(repoRoot, name, { standard: skillArgs.includes("--standard") });
+      const payload = { status: result.ok ? "ok" : "error", command: "skill", subcommand: "validate", mode: skillArgs.includes("--standard") ? "standard" : "compatibility", ...result };
+      if (output !== "json") for (const warning of result.warnings) console.error(`warn: ${warning.skill}: ${warning.message}`);
       if (output === "json") {
         printResult(output, payload);
       } else if (result.ok) {
@@ -2158,11 +2156,12 @@ async function main(): Promise<number> {
     const result = await store.validateManifest();
     const skills = await validateSkills(repoRoot);
     const ok = result.ok && skills.ok;
+    if (output !== "json") for (const warning of skills.warnings) console.error(`warn: ${warning.skill}: ${warning.message}`);
     const payload = {
       status: ok ? "ok" : "error",
       command: "validate",
       ...result,
-      skills: { ok: skills.ok, issues: skills.issues, skill_count: skills.skill_count },
+      skills: { ...skills, mode: "compatibility" },
     };
     if (output === "json") {
       printResult(output, payload);

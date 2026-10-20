@@ -1,9 +1,11 @@
 ---
 name: create-artifact
-description: Capture ideation context as a Reffy artifact and register it in the manifest.
-triggers: ["new artifact", "capture idea", "add note", "reindex"]
-commands: ["reffy reindex", "reffy validate"]
-managed: true
+description: Capture ideas, research, and exploratory notes as Reffy artifacts. Use when asked to record an idea, add a note, preserve research context, or reindex artifacts before formal planning.
+compatibility: Requires the Reffy CLI and an initialized Reffy workspace.
+metadata:
+  reffy-managed: "true"
+  reffy-commands: '["reffy reindex","reffy validate"]'
+  reffy-triggers: '["new artifact","capture idea","add note","reindex"]'
 ---
 
 ## When to use this skill

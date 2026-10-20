@@ -1,270 +1,231 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { parseDocument, stringify } from "yaml";
 
 import { resolveRefsDir } from "./refs-paths.js";
+import { atomicWrite, assertNoSymlinks } from "./skill-files.js";
 
 export const SKILLS_DIRNAME = "skills";
 export const SKILL_ENTRY_FILENAME = "SKILL.md";
 
-export interface SkillFrontmatter {
+export interface StandardSkillHeader {
   name?: string;
   description?: string;
+  license?: string;
+  compatibility?: string;
+  metadata?: Record<string, string>;
+  "allowed-tools"?: string;
+}
+export interface SkillFrontmatter extends StandardSkillHeader {
   triggers: string[];
   commands: string[];
   managed: boolean;
 }
-
-export interface SkillDescriptor {
+export interface SkillDescriptor extends SkillFrontmatter {
   name: string;
   description: string;
-  triggers: string[];
-  commands: string[];
-  managed: boolean;
   path: string;
+  location: string;
 }
-
 export interface SkillRecord extends SkillDescriptor {
   dir: string;
   entryPath: string;
   body: string;
 }
-
 export interface SkillValidationIssue {
   skill: string;
   field?: string;
   message: string;
 }
-
 export interface SkillValidationResult {
   ok: boolean;
   issues: SkillValidationIssue[];
+  warnings: SkillValidationIssue[];
   skill_count: number;
 }
-
+export interface ParsedSkill {
+  frontmatter: SkillFrontmatter;
+  header: Record<string, unknown>;
+  body: string;
+  issues: Omit<SkillValidationIssue, "skill">[];
+  warnings: Omit<SkillValidationIssue, "skill">[];
+}
+const STANDARD_FIELDS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
+const LEGACY_FIELDS = ["triggers", "commands", "managed"] as const;
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function resolveSkillsDir(repoRoot: string): string {
   return path.join(resolveRefsDir(repoRoot), SKILLS_DIRNAME);
 }
-
 export function isKebabCase(value: string): boolean {
   return KEBAB_CASE.test(value);
 }
-
+export function isSkillName(value: string): boolean {
+  const normalized = value.normalize("NFKC");
+  return Array.from(normalized).length <= 64 && normalized === normalized.toLowerCase() &&
+    /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(normalized);
+}
 async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
+  try { await fs.access(targetPath); return true; } catch { return false; }
+}
+function isMapping(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseScalar(raw: string): string {
-  const trimmed = raw.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function parseInlineList(raw: string): string[] {
-  const inner = raw.trim().replace(/^\[/, "").replace(/\]$/, "");
-  if (inner.trim() === "") {
-    return [];
-  }
-  return inner
-    .split(",")
-    .map((item) => parseScalar(item))
-    .filter((item) => item.length > 0);
-}
-
-/**
- * Parse the `SKILL.md` frontmatter contract. Supports a leading `---` fenced
- * block with scalar fields (`name`, `description`, `managed`) and list fields
- * (`triggers`, `commands`) in either inline (`[a, b]`) or block (`- a`) form.
- * Returns the parsed frontmatter and the remaining markdown body.
- */
-export function parseSkillFile(content: string): { frontmatter: SkillFrontmatter; body: string } {
-  const normalized = content.replace(/^﻿/, "");
+/** Parse real YAML, preserving the body verbatim, with diagnostics instead of silent coercion. */
+export function parseSkillFile(content: string, options: { standard?: boolean } = {}): ParsedSkill {
   const frontmatter: SkillFrontmatter = { triggers: [], commands: [], managed: false };
-
-  const lines = normalized.split(/\r?\n/);
-  if (lines[0]?.trim() !== "---") {
-    return { frontmatter, body: normalized };
+  const result: ParsedSkill = { frontmatter, header: {}, body: content, issues: [], warnings: [] };
+  const issue = (field: string, message: string) => result.issues.push({ field, message });
+  const match = /^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)/m.exec(content);
+  if (!match || match.index !== 0) {
+    issue("frontmatter", "SKILL.md must begin with a closed YAML frontmatter block");
+    return result;
   }
-
-  let end = -1;
-  for (let i = 1; i < lines.length; i += 1) {
-    if (lines[i].trim() === "---") {
-      end = i;
-      break;
+  result.body = content.slice(match[0].length);
+  try {
+    const doc = parseDocument(match[1], { uniqueKeys: true, stringKeys: true });
+    if (doc.errors.length || doc.warnings.length) throw new Error([...doc.errors, ...doc.warnings].map(e => e.message).join("; "));
+    const header: unknown = doc.toJS({ maxAliasCount: 50 });
+    if (!isMapping(header)) throw new Error("frontmatter must be a YAML mapping");
+    result.header = header;
+  } catch (error) {
+    issue("frontmatter", `Invalid YAML: ${error instanceof Error ? error.message : String(error)}`);
+    return result;
+  }
+  const header = result.header;
+  for (const key of Object.keys(header)) {
+    if (STANDARD_FIELDS.has(key)) continue;
+    if (LEGACY_FIELDS.includes(key as typeof LEGACY_FIELDS[number])) {
+      if (options.standard) issue(key, `Nonstandard legacy field: ${key}; run reffy skill migrate`);
+      result.warnings.push({ field: key, message: `Legacy field ${key} is deprecated; run reffy skill migrate` });
+    } else issue(key, `Unknown frontmatter field: ${key}`);
+  }
+  for (const key of ["name", "description", "license", "compatibility", "allowed-tools"] as const) {
+    const value = header[key];
+    if (value === undefined && key !== "name" && key !== "description") continue;
+    if (typeof value !== "string") { issue(key, `${key} must be a string`); continue; }
+    frontmatter[key] = value;
+    if (["name", "description", "compatibility"].includes(key)) {
+      const max = key === "name" ? 64 : key === "description" ? 1024 : 500;
+      if (!value.trim() || Array.from(value).length > max) issue(key, `${key} must contain 1–${max} characters`);
     }
   }
-  if (end === -1) {
-    return { frontmatter, body: normalized };
+  if (frontmatter.name && !isSkillName(frontmatter.name)) issue("name", "name must use lowercase alphanumeric characters and single internal hyphens (maximum 64 characters)");
+  if (header.metadata !== undefined) {
+    if (!isMapping(header.metadata) || Object.values(header.metadata).some(v => typeof v !== "string")) {
+      issue("metadata", "metadata must map string keys to string values");
+    } else frontmatter.metadata = header.metadata as Record<string, string>;
   }
-
-  let currentListKey: "triggers" | "commands" | null = null;
-  for (let i = 1; i < end; i += 1) {
-    const line = lines[i];
-    if (line.trim() === "") {
-      continue;
+  for (const key of LEGACY_FIELDS) {
+    const legacy = header[key];
+    const encoded = frontmatter.metadata?.[`reffy-${key}`];
+    let value: unknown;
+    if (encoded !== undefined) {
+      try {
+        value = JSON.parse(encoded);
+        if (key === "managed" && encoded !== "true" && encoded !== "false") throw new Error();
+      } catch { issue(`metadata.reffy-${key}`, `reffy-${key} must encode ${key === "managed" ? "true or false" : "a JSON array of strings"}`); }
     }
-
-    const blockItem = /^\s*-\s+(.*)$/.exec(line);
-    if (blockItem && currentListKey) {
-      const value = parseScalar(blockItem[1]);
-      if (value.length > 0) {
-        frontmatter[currentListKey].push(value);
+    for (const [field, candidate] of [[key, legacy], [`metadata.reffy-${key}`, value]] as const) {
+      if (candidate === undefined) continue;
+      if (key === "managed" ? typeof candidate !== "boolean" : !Array.isArray(candidate) || candidate.some(v => typeof v !== "string")) {
+        issue(field, `${field} must be ${key === "managed" ? "a boolean" : "an array of strings"}`);
       }
-      continue;
     }
-
-    const keyMatch = /^([A-Za-z_][A-Za-z0-9_]*):(.*)$/.exec(line);
-    if (!keyMatch) {
-      continue;
-    }
-    const key = keyMatch[1].trim();
-    const rawValue = keyMatch[2].trim();
-    currentListKey = null;
-
-    if (key === "name") {
-      frontmatter.name = parseScalar(rawValue);
-    } else if (key === "description") {
-      frontmatter.description = parseScalar(rawValue);
-    } else if (key === "managed") {
-      frontmatter.managed = parseScalar(rawValue).toLowerCase() === "true";
-    } else if (key === "triggers" || key === "commands") {
-      if (rawValue.startsWith("[")) {
-        frontmatter[key] = parseInlineList(rawValue);
-      } else if (rawValue === "") {
-        currentListKey = key;
-      } else {
-        frontmatter[key] = [parseScalar(rawValue)];
-      }
-    }
+    if (legacy !== undefined && value !== undefined && JSON.stringify(legacy) !== JSON.stringify(value)) issue(key, `Conflicting legacy and metadata declarations for ${key}`);
+    const chosen = value ?? legacy;
+    if (key === "managed") { if (typeof chosen === "boolean") frontmatter.managed = chosen; }
+    else if (Array.isArray(chosen) && chosen.every(v => typeof v === "string")) frontmatter[key] = chosen;
   }
-
-  const body = lines.slice(end + 1).join("\n").replace(/^\n+/, "");
-  return { frontmatter, body };
+  return result;
 }
 
-function toDescriptor(record: { frontmatter: SkillFrontmatter; dirName: string; relPath: string }): SkillDescriptor {
-  const { frontmatter, dirName, relPath } = record;
-  return {
-    name: frontmatter.name ?? dirName,
-    description: frontmatter.description ?? "",
-    triggers: frontmatter.triggers,
-    commands: frontmatter.commands,
-    managed: frontmatter.managed,
-    path: relPath,
-  };
+async function skillDirectories(repoRoot: string): Promise<string[]> {
+  const entries = await fs.readdir(resolveSkillsDir(repoRoot), { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  return entries.filter(e => e.isDirectory() || e.isSymbolicLink()).map(e => e.name).sort();
 }
-
-/**
- * Discover skills by scanning `.reffy/skills/` for directories containing a
- * `SKILL.md` entry file. Skills are filesystem-discovered and never indexed in
- * `manifest.json`.
- */
-export async function discoverSkills(repoRoot: string): Promise<SkillRecord[]> {
-  const skillsDir = resolveSkillsDir(repoRoot);
-  const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => []);
-  const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-
-  const records: SkillRecord[] = [];
-  for (const dirName of dirs) {
-    const dir = path.join(skillsDir, dirName);
+async function readSkill(repoRoot: string, dirName: string, standard = false): Promise<ParsedSkill> {
+  const entryPath = path.join(resolveSkillsDir(repoRoot), dirName, SKILL_ENTRY_FILENAME);
+  try {
+    await assertNoSymlinks(path.resolve(repoRoot), entryPath);
+    const parsed = parseSkillFile(await fs.readFile(entryPath, "utf8"), { standard });
+    if (parsed.frontmatter.name && parsed.frontmatter.name.normalize("NFKC") !== dirName.normalize("NFKC")) {
+      parsed.issues.push({ field: "name", message: `name "${parsed.frontmatter.name}" does not match directory name "${dirName}"` });
+    }
+    return parsed;
+  } catch (error) {
+    return { frontmatter: { triggers: [], commands: [], managed: false }, header: {}, body: "", warnings: [],
+      issues: [{ field: "path", message: `${SKILL_ENTRY_FILENAME}: ${error instanceof Error ? error.message : String(error)}` }] };
+  }
+}
+export function skillDescriptor({ dir: _dir, entryPath: _entryPath, body: _body, ...descriptor }: SkillRecord): SkillDescriptor {
+  return descriptor;
+}
+export async function discoverSkillsWithDiagnostics(repoRoot: string): Promise<{ skills: SkillRecord[]; diagnostics: (SkillValidationIssue & { severity: "error" | "warning" })[] }> {
+  const skills: SkillRecord[] = [];
+  const diagnostics: (SkillValidationIssue & { severity: "error" | "warning" })[] = [];
+  for (const dirName of await skillDirectories(repoRoot)) {
+    const parsed = await readSkill(repoRoot, dirName);
+    for (const i of parsed.issues) diagnostics.push({ skill: dirName, ...i, severity: "error" });
+    for (const i of parsed.warnings) diagnostics.push({ skill: dirName, ...i, severity: "warning" });
+    if (parsed.issues.length) continue;
+    const dir = path.join(resolveSkillsDir(repoRoot), dirName);
     const entryPath = path.join(dir, SKILL_ENTRY_FILENAME);
-    if (!(await pathExists(entryPath))) {
-      continue;
-    }
-    const content = await fs.readFile(entryPath, "utf8");
-    const { frontmatter, body } = parseSkillFile(content);
-    const relPath = path.relative(repoRoot, entryPath);
-    const descriptor = toDescriptor({ frontmatter, dirName, relPath });
-    records.push({ ...descriptor, dir, entryPath, body });
+    skills.push({ ...parsed.frontmatter, name: parsed.frontmatter.name!, description: parsed.frontmatter.description!,
+      path: path.relative(repoRoot, entryPath), location: path.resolve(entryPath), dir, entryPath, body: parsed.body });
   }
-  return records;
+  return { skills, diagnostics };
 }
-
+export async function discoverSkills(repoRoot: string): Promise<SkillRecord[]> {
+  return (await discoverSkillsWithDiagnostics(repoRoot)).skills;
+}
 export async function findSkill(repoRoot: string, name: string): Promise<SkillRecord | null> {
-  const skills = await discoverSkills(repoRoot);
-  return skills.find((skill) => skill.name === name) ?? null;
+  return (await discoverSkills(repoRoot)).find(skill => skill.name === name) ?? null;
 }
-
-/**
- * Validate every skill (or one named skill) against the frontmatter contract:
- * required fields, non-empty triggers, unique names, and kebab-case directory
- * names matching `name`.
- */
-export async function validateSkills(repoRoot: string, name?: string): Promise<SkillValidationResult> {
-  const skillsDir = resolveSkillsDir(repoRoot);
+export async function validateSkills(repoRoot: string, name?: string, options: { standard?: boolean } = {}): Promise<SkillValidationResult> {
+  const dirs = (await skillDirectories(repoRoot)).filter(d => name === undefined || name === d);
   const issues: SkillValidationIssue[] = [];
-
-  const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => []);
-  const dirs = entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .filter((dirName) => name === undefined || dirName === name)
-    .sort();
-
-  const seenNames = new Map<string, string>();
-
+  const warnings: SkillValidationIssue[] = [];
+  const seen = new Set<string>();
   for (const dirName of dirs) {
-    const label = dirName;
-    const entryPath = path.join(skillsDir, dirName, SKILL_ENTRY_FILENAME);
-    if (!(await pathExists(entryPath))) {
-      issues.push({ skill: label, message: `${SKILL_ENTRY_FILENAME} is missing` });
-      continue;
-    }
-
-    const content = await fs.readFile(entryPath, "utf8");
-    const { frontmatter } = parseSkillFile(content);
-
-    if (!frontmatter.name || frontmatter.name.trim() === "") {
-      issues.push({ skill: label, field: "name", message: "frontmatter is missing required field: name" });
-    } else {
-      if (frontmatter.name !== dirName) {
-        issues.push({
-          skill: label,
-          field: "name",
-          message: `name "${frontmatter.name}" does not match directory name "${dirName}"`,
-        });
-      }
-      const prior = seenNames.get(frontmatter.name);
-      if (prior) {
-        issues.push({
-          skill: label,
-          field: "name",
-          message: `duplicate skill name "${frontmatter.name}" (also defined in "${prior}")`,
-        });
-      } else {
-        seenNames.set(frontmatter.name, dirName);
+    const parsed = await readSkill(repoRoot, dirName, options.standard);
+    issues.push(...parsed.issues.map(i => ({ skill: dirName, ...i })));
+    warnings.push(...parsed.warnings.map(i => ({ skill: dirName, ...i })));
+    const normalized = parsed.frontmatter.name?.normalize("NFKC");
+    if (normalized && seen.has(normalized)) issues.push({ skill: dirName, field: "name", message: `duplicate skill name "${normalized}"` });
+    if (normalized) seen.add(normalized);
+  }
+  if (name !== undefined && !dirs.length) issues.push({ skill: name, message: `skill "${name}" was not found` });
+  return { ok: !issues.length, issues, warnings, skill_count: dirs.length };
+}
+export async function migrateSkills(repoRoot: string, name?: string): Promise<{ changed: string[]; skipped: string[] }> {
+  const validation = await validateSkills(repoRoot, name);
+  if (!validation.ok) throw new Error(validation.issues.map(i => `${i.skill} (${i.field ?? "header"}): ${i.message}`).join("\n"));
+  const writes: { name: string; entryPath: string; content: string }[] = [];
+  const skipped: string[] = [];
+  for (const dirName of (await skillDirectories(repoRoot)).filter(d => name === undefined || name === d)) {
+    const parsed = await readSkill(repoRoot, dirName);
+    const header = { ...parsed.header };
+    const metadata = { ...parsed.frontmatter.metadata };
+    let changed = false;
+    for (const key of LEGACY_FIELDS) {
+      if (header[key] !== undefined) {
+        metadata[`reffy-${key}`] = JSON.stringify(parsed.frontmatter[key]);
+        delete header[key];
+        changed = true;
       }
     }
-
-    if (!isKebabCase(dirName)) {
-      issues.push({ skill: label, message: `directory name "${dirName}" is not kebab-case` });
-    }
-
-    if (!frontmatter.description || frontmatter.description.trim() === "") {
-      issues.push({ skill: label, field: "description", message: "frontmatter is missing required field: description" });
-    }
-
-    if (frontmatter.triggers.length === 0) {
-      issues.push({ skill: label, field: "triggers", message: "frontmatter field triggers must contain at least one entry" });
-    }
+    if (!changed) { skipped.push(dirName); continue; }
+    header.metadata = metadata;
+    writes.push({ name: dirName, entryPath: path.join(resolveSkillsDir(repoRoot), dirName, SKILL_ENTRY_FILENAME),
+      content: `---\n${stringify(header)}---\n${parsed.body}` });
   }
-
-  if (name !== undefined && dirs.length === 0) {
-    issues.push({ skill: name, message: `skill "${name}" was not found` });
-  }
-
-  return { ok: issues.length === 0, issues, skill_count: dirs.length };
+  for (const write of writes) await atomicWrite(write.entryPath, write.content);
+  return { changed: writes.map(w => w.name), skipped };
 }
 
 // --- Command-reference staleness -------------------------------------------
@@ -303,6 +264,8 @@ export const KNOWN_COMMANDS: readonly string[] = [
   "reffy skill show",
   "reffy skill create",
   "reffy skill validate",
+  "reffy skill migrate",
+  "reffy skill export",
 ];
 
 /** Reduce a declared command string to its leading non-flag tokens. */
@@ -318,12 +281,31 @@ function commandHead(command: string): string {
   return head.join(" ");
 }
 
+const COMMAND_FLAGS: Record<string, readonly string[]> = {
+  "reffy plan create": ["--change-id", "--title", "--artifacts", "--all", "--force"],
+  "reffy skill validate": ["--standard"],
+  "reffy skill export": ["--target"],
+  "reffy remote init": ["--workspace-id", "--endpoint", "--manager-pod", "--manager-actor", "--provision", "--create", "--resolve", "--label", "--env-file"],
+  "reffy remote status": ["--workspace-id", "--project-id", "--env-file"],
+  "reffy remote push": ["--workspace-id", "--env-file"],
+  "reffy remote ls": ["--workspace-id", "--project-id", "--prefix", "--env-file"],
+  "reffy remote cat": ["--workspace-id", "--project-id", "--env-file"],
+  "reffy remote snapshot": ["--workspace-id", "--project-id", "--env-file"],
+  "reffy remote workspace create": ["--label", "--env-file"],
+  "reffy remote workspace get": ["--env-file"],
+  "reffy remote workspace delete": ["--yes", "--env-file"],
+  "reffy remote project register": ["--workspace-id", "--project-id", "--env-file"],
+  "reffy remote project list": ["--workspace-id", "--env-file"],
+  "reffy diagram render": ["--input", "--stdin", "--format", "--theme", "--bg", "--fg", "--line", "--accent", "--muted", "--surface", "--border", "--font"],
+};
 export function isKnownCommand(command: string): boolean {
   const head = commandHead(command);
-  if (head === "") {
-    return false;
-  }
-  return KNOWN_COMMANDS.some((known) => head === known || head.startsWith(`${known} `));
+  const known = [...KNOWN_COMMANDS].sort((a, b) => b.length - a.length).find(c => head === c || head.startsWith(`${c} `));
+  if (!known) return false;
+  const allowed = new Set(["--repo", "--output", "--json", ...COMMAND_FLAGS[known] ?? []]);
+  // Flags inside quoted argument values are data, not CLI options.
+  const unquoted = command.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, "ARG");
+  return [...unquoted.matchAll(/(?:^|\s)(--?[a-zA-Z0-9][a-zA-Z0-9-]*)(?==|\s|$)/g)].every(m => allowed.has(m[1]));
 }
 
 export interface SkillCommandDrift {
@@ -355,23 +337,23 @@ interface ManagedSkillDefinition {
 }
 
 function renderSkillFile(def: { name: string; description: string; triggers: string[]; commands: string[]; managed: boolean; body: string }): string {
-  const lines = ["---"];
-  lines.push(`name: ${def.name}`);
-  lines.push(`description: ${def.description}`);
-  lines.push(`triggers: [${def.triggers.map((t) => JSON.stringify(t)).join(", ")}]`);
-  lines.push(`commands: [${def.commands.map((c) => JSON.stringify(c)).join(", ")}]`);
-  lines.push(`managed: ${def.managed ? "true" : "false"}`);
-  lines.push("---");
-  lines.push("");
-  lines.push(def.body.trim());
-  lines.push("");
-  return lines.join("\n");
+  const header = {
+    name: def.name,
+    description: def.description,
+    compatibility: "Requires the Reffy CLI and an initialized Reffy workspace.",
+    metadata: {
+      "reffy-managed": String(def.managed),
+      "reffy-commands": JSON.stringify(def.commands),
+      "reffy-triggers": JSON.stringify(def.triggers),
+    },
+  };
+  return `---\n${stringify(header, { lineWidth: 0 })}---\n\n${def.body.trim()}\n`;
 }
 
 export const MANAGED_SKILLS: readonly ManagedSkillDefinition[] = [
   {
     name: "create-artifact",
-    description: "Capture ideation context as a Reffy artifact and register it in the manifest.",
+    description: "Capture ideas, research, and exploratory notes as Reffy artifacts. Use when asked to record an idea, add a note, preserve research context, or reindex artifacts before formal planning.",
     triggers: ["new artifact", "capture idea", "add note", "reindex"],
     commands: ["reffy reindex", "reffy validate"],
     body: `## When to use this skill
@@ -389,7 +371,7 @@ Use this when you have raw ideation, exploration, or research context to capture
   },
   {
     name: "create-change",
-    description: "Turn one or more ideation artifacts into a ReffySpec change proposal.",
+    description: "Create a ReffySpec proposal from ideation artifacts. Use when asked to plan a new change, write a proposal, or turn captured research into implementation tasks and spec deltas.",
     triggers: ["new change", "plan create", "turn artifact into proposal"],
     commands: ["reffy plan create", "reffy plan validate"],
     body: `## When to use this skill
@@ -410,7 +392,7 @@ Use this when ideation has converged and you are ready to scaffold a formal Reff
   },
   {
     name: "archive-change",
-    description: "Complete and archive a shipped ReffySpec change, merging its delta into canonical specs.",
+    description: "Archive an implemented and verified ReffySpec change and merge its delta into canonical specs. Use when asked to archive a change, finish shipped work, or merge a completed spec delta.",
     triggers: ["archive change", "ship change", "plan archive", "merge spec"],
     commands: ["reffy plan validate", "reffy plan archive", "reffy spec show"],
     body: `## When to use this skill
@@ -429,7 +411,7 @@ Use this once a change is implemented and verified and you want to fold its spec
   },
   {
     name: "supersede-change",
-    description: "Represent a pivot, deprecation, or reversal as a new change that supersedes a prior one.",
+    description: "Create a change that supersedes a prior decision. Use for a pivot, deprecation, wind-down, reversal, abandoning an approach, or requests to change direction, deprecate, wind down, or replace prior behavior.",
     triggers: [
       "pivot",
       "change direction",
@@ -459,7 +441,7 @@ Use this when a request changes direction rather than adding to it: a pivot, dep
   },
   {
     name: "inspect-specs",
-    description: "Ground work in current truth by inspecting canonical specs before changing behavior.",
+    description: "Inspect canonical ReffySpec requirements and scenarios. Use when asked what current specs say, to list or show specs, or to ground a proposal or implementation in current behavior.",
     triggers: ["inspect specs", "current truth", "spec list", "spec show"],
     commands: ["reffy spec list", "reffy spec show"],
     body: `## When to use this skill
@@ -475,7 +457,7 @@ Use this before drafting a change or implementing behavior, to confirm what the 
   },
   {
     name: "sync-remote",
-    description: "Publish and inspect the local .reffy/ workspace on a Paseo-backed remote.",
+    description: "Link, inspect, and publish a Reffy remote workspace backed by Paseo. Use for remote sync, remote status, remote workspace inspection, shared references, or requests to push a workspace, publish references, or synchronize shared context.",
     triggers: [
       "remote sync",
       "remote workspace",
@@ -515,7 +497,7 @@ precedence over \`.env\`.
   },
   {
     name: "diagnose",
-    description: "Diagnose Reffy workspace health and resolve common failure classes.",
+    description: "Diagnose Reffy workspace health. Use when asked to run doctor, troubleshoot initialization, investigate validation failures, or repair stale command references and workspace setup.",
     triggers: ["diagnose", "doctor", "validate", "workspace health"],
     commands: ["reffy doctor", "reffy validate"],
     body: `## When to use this skill
@@ -528,7 +510,7 @@ Use this first when a Reffy command misbehaves in an unfamiliar repo.
    - Missing \`.reffy/\` or \`AGENTS.md\`: run \`reffy init\`.
    - Legacy \`.references/\` workspace: run \`reffy init\`.
    - Invalid manifest: fix the reported entry, then re-run \`reffy validate\`.
-   - Skill command drift: update the stale skill's \`commands\` list.
+   - Skill command drift: update the stale skill's \`metadata.reffy-commands\` JSON array string.
 
 ## Failure modes
 - A non-zero exit from \`reffy doctor\` means a required check failed; address required failures before optional warnings.`,
@@ -555,13 +537,23 @@ export async function scaffoldManagedSkills(repoRoot: string): Promise<SkillScaf
   const created_dir = !(await pathExists(skillsDir));
   await fs.mkdir(skillsDir, { recursive: true });
 
+  for (const def of MANAGED_SKILLS) {
+    const entryPath = path.join(skillsDir, def.name, SKILL_ENTRY_FILENAME);
+    await assertNoSymlinks(path.resolve(repoRoot), entryPath);
+    if (await pathExists(entryPath)) {
+      const parsed = await readSkill(repoRoot, def.name);
+      if (parsed.issues.length || !parsed.frontmatter.managed) {
+        throw new Error(`Skill ownership conflict at ${entryPath}; move or migrate the user-owned file before re-running init`);
+      }
+    }
+  }
   const written: string[] = [];
   for (const def of MANAGED_SKILLS) {
     const dir = path.join(skillsDir, def.name);
     await fs.mkdir(dir, { recursive: true });
     const entryPath = path.join(dir, SKILL_ENTRY_FILENAME);
     const content = renderSkillFile({ ...def, managed: true });
-    await fs.writeFile(entryPath, content, "utf8");
+    await atomicWrite(entryPath, content);
     written.push(def.name);
   }
 
@@ -592,8 +584,8 @@ export interface SkillCreateResult {
 
 /** Scaffold a new unmanaged skill from a template. */
 export async function createSkill(repoRoot: string, name: string): Promise<SkillCreateResult> {
-  if (!isKebabCase(name)) {
-    throw new Error(`Skill name must be kebab-case: "${name}"`);
+  if (!isSkillName(name)) {
+    throw new Error(`Skill name must be lowercase kebab-case with at most 64 characters: "${name}"`);
   }
   if (isManagedSkillName(name)) {
     throw new Error(`"${name}" is a managed skill name and is reserved by reffy init`);
@@ -601,6 +593,7 @@ export async function createSkill(repoRoot: string, name: string): Promise<Skill
 
   const skillsDir = resolveSkillsDir(repoRoot);
   const dir = path.join(skillsDir, name);
+  await assertNoSymlinks(path.resolve(repoRoot), dir);
   const entryPath = path.join(dir, SKILL_ENTRY_FILENAME);
   if (await pathExists(entryPath)) {
     throw new Error(`Skill "${name}" already exists at ${path.relative(repoRoot, entryPath)}`);

@@ -1,9 +1,11 @@
 ---
 name: inspect-specs
-description: Ground work in current truth by inspecting canonical specs before changing behavior.
-triggers: ["inspect specs", "current truth", "spec list", "spec show"]
-commands: ["reffy spec list", "reffy spec show"]
-managed: true
+description: Inspect canonical ReffySpec requirements and scenarios. Use when asked what current specs say, to list or show specs, or to ground a proposal or implementation in current behavior.
+compatibility: Requires the Reffy CLI and an initialized Reffy workspace.
+metadata:
+  reffy-managed: "true"
+  reffy-commands: '["reffy spec list","reffy spec show"]'
+  reffy-triggers: '["inspect specs","current truth","spec list","spec show"]'
 ---
 
 ## When to use this skill

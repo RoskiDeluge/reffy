@@ -1,9 +1,11 @@
 ---
 name: create-change
-description: Turn one or more ideation artifacts into a ReffySpec change proposal.
-triggers: ["new change", "plan create", "turn artifact into proposal"]
-commands: ["reffy plan create", "reffy plan validate"]
-managed: true
+description: Create a ReffySpec proposal from ideation artifacts. Use when asked to plan a new change, write a proposal, or turn captured research into implementation tasks and spec deltas.
+compatibility: Requires the Reffy CLI and an initialized Reffy workspace.
+metadata:
+  reffy-managed: "true"
+  reffy-commands: '["reffy plan create","reffy plan validate"]'
+  reffy-triggers: '["new change","plan create","turn artifact into proposal"]'
 ---
 
 ## When to use this skill

@@ -1,6 +1,6 @@
 {
   "name": "reffy-cli",
-  "version": "1.9.5",
+  "version": "1.10.0",
   "packageManager": "pnpm@10.34.5",
   "description": "Planning system for AI assisted development.",
   "keywords": [
@@ -26,6 +26,7 @@
   "files": [
     "dist/",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "bin": {
@@ -38,7 +39,10 @@
     "dev": "tsx watch src/cli.ts",
     "check": "tsc --noEmit",
     "test": "tsc -p tsconfig.json && vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:skill-conformance": "pnpm build && node scripts/check-skill-conformance.mjs",
+    "changelog:check": "node scripts/changelog.mjs check",
+    "release:prepare": "node scripts/changelog.mjs prepare"
   },
   "engines": {
     "node": ">=20"
@@ -55,7 +59,8 @@
   "dependencies": {
     "beautiful-mermaid": "^0.1.3",
     "mime-types": "^2.1.35",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/mime-types": "^2.1.4",

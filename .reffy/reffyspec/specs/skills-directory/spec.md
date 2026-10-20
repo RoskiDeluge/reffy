@@ -19,109 +19,113 @@ The system SHALL define `.reffy/skills/` as part of the workspace contract, wher
 - **AND** it does NOT require any corresponding entry in `.reffy/manifest.json`
 
 ### Requirement: SKILL.md Frontmatter Contract
-Each `SKILL.md` MUST begin with YAML frontmatter carrying `name`, `description`, and `triggers`, MAY declare `commands`, and MAY set `managed`. `triggers` MUST contain at least one entry. The frontmatter serves as the index so an agent can decide whether to load the body without reading it.
+Each `SKILL.md` MUST begin with valid YAML mapping frontmatter containing standard-required `name` and `description`, followed by Markdown instructions. The system SHALL preserve standard optional `license`, `compatibility`, `metadata`, and `allowed-tools` fields. Generated files SHALL use only standard top-level fields; Reffy extensions SHALL be namespaced string values under `metadata`. Triggers SHALL be optional and descriptions SHALL be sufficient for skill selection.
 
-#### Scenario: Valid frontmatter
-- **WHEN** a `SKILL.md` declares `name`, `description`, and a non-empty `triggers` list in its frontmatter followed by a markdown body
-- **THEN** the skill is recognized as valid
-- **AND** `name` matches the kebab-case name of its containing directory
+#### Scenario: Minimal standard skill
+- **WHEN** a skill declares only valid `name` and `description` fields followed by instructions
+- **THEN** Reffy recognizes and validates it without requiring triggers, commands, or a managed declaration
+- **AND** omitted Reffy extension values normalize to empty trigger/command arrays and unmanaged ownership
 
-#### Scenario: Missing or empty triggers
-- **WHEN** a `SKILL.md` omits `triggers` or declares an empty `triggers` list
-- **THEN** the skill is rejected as invalid
-- **AND** the diagnostic names the missing or empty `triggers` field
+#### Scenario: YAML content and optional fields survive parsing
+- **WHEN** a skill uses folded or literal descriptions, quoted values containing commas, or standard optional fields
+- **THEN** parsed descriptions and values retain their YAML meaning
+- **AND** optional fields remain available in records and JSON descriptors
 
-#### Scenario: Commands declaration
-- **WHEN** a skill declares a `commands` list naming the CLI commands it wraps
-- **THEN** those declared commands are available for staleness checking against the installed CLI
-
-#### Scenario: Managed flag
-- **WHEN** a skill sets `managed: true`
-- **THEN** the skill is treated as CLI-owned and eligible for refresh on `reffy init`
-- **AND** a skill that omits the flag is treated as user-owned and never modified by the CLI
+#### Scenario: Reffy metadata encoding
+- **WHEN** a generated skill declares Reffy ownership, commands, or supplementary triggers
+- **THEN** those declarations use `metadata.reffy-managed`, `metadata.reffy-commands`, and optional `metadata.reffy-triggers` as strings
+- **AND** command/trigger strings encode JSON arrays of strings
+- **AND** the descriptor exposes normalized values without treating them as execution authorization
 
 ### Requirement: Managed Skill Scaffolding on Init
-`reffy init` SHALL create `.reffy/skills/` and write the built-in managed skills covering the core workflows. Re-running `init` SHALL refresh managed skill bodies in place and SHALL NOT modify or remove unmanaged skills.
+`reffy init` SHALL create `.reffy/skills/` and write the seven built-in managed skills with standard-conforming headers and independently useful descriptions. Re-running init SHALL refresh CLI-owned built-ins and SHALL NOT modify user-owned skill content or implicitly create native exports.
 
-#### Scenario: Initial scaffolding
-- **WHEN** a user runs `reffy init` in a workspace without a skills directory
-- **THEN** `.reffy/skills/` is created
-- **AND** the built-in managed skills (`create-artifact`, `create-change`, `archive-change`, `supersede-change`, `inspect-specs`, `sync-remote`, `diagnose`) are written
+#### Scenario: Fresh initialization
+- **WHEN** a workspace is initialized
+- **THEN** standard-conforming `create-artifact`, `create-change`, `archive-change`, `supersede-change`, `inspect-specs`, `sync-remote`, and `diagnose` skills are written
+- **AND** each declares its CLI/workspace dependency and managed ownership in standard fields
 
-#### Scenario: Refresh preserves unmanaged skills
-- **WHEN** a user has added an unmanaged skill and runs `reffy init` again
-- **THEN** managed skill bodies are regenerated in place
-- **AND** the unmanaged skill is left unchanged
+#### Scenario: Legacy managed refresh preserves custom skills
+- **WHEN** init encounters legacy CLI-owned built-ins alongside user-owned skills
+- **THEN** built-ins refresh to the standard header format
+- **AND** user-owned skills and support files remain unchanged
+
+#### Scenario: User ownership conflicts with a built-in name
+- **WHEN** init encounters a valid user-owned skill at a reserved built-in path
+- **THEN** it reports the ownership conflict and recovery guidance
+- **AND** it does not overwrite that file
 
 ### Requirement: Skill Command Group
-The CLI SHALL provide a `reffy skill` command group with `list`, `show <name>`, `create <name>`, and `validate [<name>]` subcommands. `list` and `show` MUST support `--output json`, emitting a harness-native descriptor shape (`name`, `description`, `triggers`, `commands`, `managed`, `path`) rather than an HTTP/OpenAPI schema.
+The CLI SHALL provide `skill list`, `show <name>`, `create <name>`, `validate [<name>] [--standard]`, `migrate [<name>]`, and `export --target agents`, supporting repository selection and text/JSON output. Existing list/show descriptor keys SHALL remain available; standard optional fields, absolute location, and structured diagnostics SHALL be additive. Listing SHALL exclude instruction bodies.
 
-#### Scenario: List skills
+#### Scenario: Text discovery provides selection and loading information
 - **WHEN** a user runs `reffy skill list`
-- **THEN** the CLI prints each skill's name, description, and managed flag
-- **AND** `reffy skill list --output json` emits an array of skill descriptors carrying `name`, `description`, `triggers`, `commands`, `managed`, and `path`
+- **THEN** each valid skill's name, description, managed state, and entry-file path are shown
+- **AND** descriptions suffice for selection without fetching trigger metadata
 
-#### Scenario: Show a skill body
-- **WHEN** a user runs `reffy skill show create-change`
-- **THEN** the CLI prints the `SKILL.md` body for that skill
-- **AND** `--output json` returns one skill descriptor with the rendered `body` attached
+#### Scenario: JSON discovery and activation
+- **WHEN** list or show is requested with JSON output
+- **THEN** descriptors retain `name`, `description`, `triggers`, `commands`, `managed`, and repository-relative `path`
+- **AND** they include an absolute `location` and supplied standard optional fields
+- **AND** only show includes the selected instruction body
 
-#### Scenario: Create an unmanaged skill
-- **WHEN** a user runs `reffy skill create my-workflow`
-- **THEN** the CLI scaffolds `.reffy/skills/my-workflow/SKILL.md` from a template
-- **AND** the scaffolded skill is unmanaged
+#### Scenario: Malformed skill does not conceal valid siblings
+- **WHEN** discovery encounters both malformed and valid skill files
+- **THEN** valid records remain discoverable
+- **AND** malformed records produce path/field diagnostics in text stderr or structured JSON diagnostics
 
-#### Scenario: Validate skills
-- **WHEN** a user runs `reffy skill validate`
-- **THEN** the CLI checks every skill against the frontmatter contract and reports violations
-- **AND** running it with a name validates only that skill
+#### Scenario: Custom scaffold is portable
+- **WHEN** `reffy skill create my-workflow` scaffolds an unmanaged skill
+- **THEN** the new header passes strict standard validation
+- **AND** no required Reffy-only top-level fields are introduced
 
 ### Requirement: Skills Validation in `reffy validate`
-`reffy validate` SHALL extend to the skills contract, enforcing required frontmatter fields, unique skill names, and kebab-case directory names that match each skill's `name`.
+`reffy validate` and `reffy skill validate` SHALL enforce YAML validity, required nonempty strings, unique skill names, directory/name agreement, and the standard's naming, length, and optional-field type constraints. Names SHALL be 1–64 Unicode code points of lowercase alphanumeric characters separated by single internal hyphens, descriptions 1–1,024 code points, and compatibility 1–500 code points when supplied. Metadata SHALL map strings to strings; license and allowed-tools SHALL be strings when supplied. Recognized legacy extensions MAY be accepted with warnings only in compatibility mode; `skill validate --standard` SHALL reject nonstandard top-level fields.
 
-#### Scenario: Missing required frontmatter field
-- **WHEN** a `SKILL.md` omits a required frontmatter field
-- **THEN** `reffy validate` exits non-zero
-- **AND** the diagnostic identifies the offending skill and missing field
+#### Scenario: Length and type boundaries
+- **WHEN** a header exceeds a standard length limit, contains a non-string metadata value, or violates a required field type
+- **THEN** validation fails with the skill, field, and violated constraint
+- **AND** fixtures at the valid boundaries pass
 
-#### Scenario: Directory name mismatch
-- **WHEN** a skill's `name` does not match its containing kebab-case directory name
-- **THEN** `reffy validate` reports the mismatch as an error
+#### Scenario: Name constraints and uniqueness
+- **WHEN** a name differs from its directory, contains uppercase characters, edge/consecutive hyphens, or duplicates another skill name
+- **THEN** validation fails with a specific diagnostic
 
-#### Scenario: Duplicate skill names
-- **WHEN** two skills declare the same `name`
-- **THEN** `reffy validate` reports a uniqueness violation
+#### Scenario: Invalid YAML or unsupported field
+- **WHEN** a header contains invalid YAML, duplicate keys, a non-mapping root, or an unrecognized top-level field
+- **THEN** validation fails rather than silently discarding or coercing the value
+
+#### Scenario: Compatibility is distinguished from conformance
+- **WHEN** a valid legacy Reffy header is validated in default mode
+- **THEN** recognized legacy declarations produce deprecation warnings without making the command fail solely for those declarations
+- **AND** the output does not claim standard conformance
+- **AND** strict standard mode rejects the same top-level declarations
 
 ### Requirement: Command-Reference Staleness in `reffy doctor`
-`reffy doctor` SHALL cross-check each skill's declared `commands` against the command table of the installed CLI and warn when a skill references a command or flag the installed version does not provide.
+`reffy doctor` SHALL cross-check normalized skill command declarations against the installed CLI and warn about stale command or flag references. Normalization SHALL support both namespaced command metadata and recognized legacy command lists during migration.
 
-#### Scenario: Stale command reference
-- **WHEN** a skill declares a command in `commands` that the installed CLI does not expose
-- **THEN** `reffy doctor` emits a staleness warning naming the skill and the unknown command
+#### Scenario: Both formats retain drift checks
+- **WHEN** either a legacy command list or `metadata.reffy-commands` references an unavailable command or flag
+- **THEN** doctor reports the skill and stale reference
+- **AND** equivalent declarations in both formats produce equivalent command-drift results
 
-#### Scenario: All references current
-- **WHEN** every skill's declared commands exist in the installed CLI command table
-- **THEN** `reffy doctor` reports no skill staleness warnings
+#### Scenario: No command declaration
+- **WHEN** a standard skill omits Reffy command metadata
+- **THEN** no drift warning is generated solely because command metadata is absent
 
 ### Requirement: Skill Discovery Wiring in Managed AGENTS.md
-The managed root `AGENTS.md` Reffy block and managed `.reffy/AGENTS.md` guidance SHALL direct agents through an ordered skill-discovery prerequisite before performing a Reffy workflow: enumerate `.reffy/skills/` (or run `reffy skill list`), match request intent against skill descriptions and triggers, read the selected `SKILL.md`, and then follow that skill before running Reffy commands. The always-loaded instruction surface SHALL recognize common Reffy remote-workspace intent and SHALL keep task procedure details in the on-demand skill files.
+Managed root and workspace AGENTS guidance SHALL direct agents to enumerate skills, select by description, load the selected entry file, and then follow it. Guidance SHALL document JSON discovery for programmatic consumers and resolve supporting file references relative to the selected skill directory. It SHALL retain remote intent coverage and SHALL NOT imply authorization for remote mutation merely from loading a skill.
 
-#### Scenario: Ordered discovery guidance is present after init
-- **WHEN** `reffy init` writes or refreshes the managed `AGENTS.md` content
-- **THEN** the root Reffy block and `.reffy/AGENTS.md` describe skill enumeration, intent matching, and selected-skill loading as ordered steps before Reffy commands run
-- **AND** the guidance permits either direct filesystem inspection of `.reffy/skills/` or `reffy skill list` for enumeration
-- **AND** task procedure detail remains in the selected on-demand `SKILL.md` rather than being duplicated inline
+#### Scenario: Description-first guidance after initialization
+- **WHEN** init creates or refreshes managed guidance
+- **THEN** the ordered discovery procedure works with text output, JSON output, or filesystem inspection
+- **AND** selecting a skill does not require optional trigger extensions
+- **AND** full procedure content stays in the selected skill
 
-#### Scenario: Remote workspace intent routes to the remote skill
-- **WHEN** `reffy init` writes or refreshes the managed root `AGENTS.md` block
-- **THEN** the block recognizes remote workspace, remote synchronization, shared-reference publication, and Paseo language as Reffy intent
-- **AND** the block directs remote-workspace requests to `.reffy/skills/sync-remote/SKILL.md`
-- **AND** the block does not direct the harness to execute a remote mutation merely because the instructions were loaded
-
-#### Scenario: Reinitialization refreshes routing safely
-- **WHEN** a repository with existing managed Reffy instructions runs `reffy init` again
-- **THEN** Reffy refreshes the ordered discovery and remote routing language in its managed regions
-- **AND** unrelated user-authored `AGENTS.md` content remains unchanged
+#### Scenario: Remote intent and user-authored guidance survive refresh
+- **WHEN** managed guidance is refreshed
+- **THEN** it continues routing remote workspace, synchronization, shared-reference publication, and Paseo intent to the remote skill
+- **AND** it preserves unrelated user-authored AGENTS content and the requirement for task authorization before remote mutation
 
 ### Requirement: Skills Are Not a Source of Capability Truth
 Skills SHALL reference specs and commands rather than restating capability requirements, and the system SHALL NOT execute skill steps in this version.
@@ -136,27 +140,93 @@ Skills SHALL reference specs and commands rather than restating capability requi
 - **AND** the CLI does not execute the skill's steps automatically
 
 ### Requirement: Supersede-Change Managed Skill
-The built-in managed skill set SHALL include a `supersede-change` skill that recognizes direction-change intent and routes it to the superseding-change procedure. Its frontmatter `triggers` MUST cover pivot, deprecation, wind-down, and reversal language so an agent following skill discovery selects it from natural-language intent.
+The built-in `supersede-change` description SHALL independently cover pivot, deprecation, wind-down, and reversal intent. Its instructions SHALL model such work as an ordinary superseding change, retain explicit lineage, and preserve append-only archive history.
 
-#### Scenario: Pivot intent matches the skill
-- **WHEN** an agent runs `reffy skill list` while handling a request to pivot, deprecate, wind down, or reverse a prior decision
-- **THEN** the `supersede-change` skill's triggers match that intent
-- **AND** its body directs the agent to identify the prior change-id, author `REMOVED`/`MODIFIED` deltas, fill the `## Supersedes` section of `proposal.md`, validate, and archive
-
-#### Scenario: Superseding never edits the archive
-- **WHEN** the `supersede-change` skill body is followed
-- **THEN** it instructs landing a new change rather than editing or deleting an archived change
-- **AND** it treats the spec delta as the authoritative record and `## Supersedes` as a navigational pointer
+#### Scenario: Selection without custom triggers
+- **WHEN** a generic client sees only names and descriptions for a request to pivot, deprecate, wind down, or reverse a prior decision
+- **THEN** the supersede-change description contains the relevant selection conditions
+- **AND** its loaded instructions identify prior changes, author retirement/modification deltas, fill Supersedes, validate, and archive without editing old archive entries
 
 ### Requirement: Remote Sync Skill Intent Coverage
-The built-in managed `sync-remote` skill SHALL advertise trigger metadata covering common requests to inspect or publish a Reffy remote workspace, including remote synchronization, remote workspace, Paseo, and shared-reference language.
+The built-in `sync-remote` description SHALL independently cover requests to inspect or publish a remote workspace, remote synchronization, Paseo, and shared references. Optional trigger metadata MAY supplement this description.
 
-#### Scenario: Common remote request selects sync-remote
-- **WHEN** an agent enumerates skills for a request that mentions a remote workspace, remote sync, Paseo, shared references, or publishing references
-- **THEN** the `sync-remote` description and triggers identify it as the matching managed skill
-- **AND** the agent can load its `SKILL.md` for the environment, authentication, identity, and publication procedure
+#### Scenario: Remote selection without custom triggers
+- **WHEN** a generic client receives only skill names and descriptions for remote or shared-reference intent
+- **THEN** sync-remote's description supplies the selection conditions
+- **AND** loading its instructions supplies environment, identity, inspection, and publication procedures without granting mutation authorization
 
-#### Scenario: Managed trigger metadata refreshes on init
-- **WHEN** `reffy init` runs in a repository with an older managed `sync-remote` skill
-- **THEN** Reffy refreshes the managed skill with the current remote intent triggers
-- **AND** unmanaged skills remain unchanged
+#### Scenario: Intent coverage refresh
+- **WHEN** init refreshes an older CLI-owned sync-remote skill
+- **THEN** the current description-first intent coverage is generated
+- **AND** user-owned skills remain unchanged
+
+### Requirement: Legacy Skill Header Migration
+The CLI SHALL read recognized legacy `triggers`, `commands`, and `managed` top-level declarations with deprecation diagnostics and provide explicit `skill migrate [<name>]` conversion to standard headers. Migration SHALL preflight selected files, preserve instruction bodies and supporting files, retain standard fields and unrelated valid metadata, and reject conflicting declarations or unknown fields rather than lose data.
+
+#### Scenario: Explicit user-owned migration
+- **WHEN** a user migrates a valid legacy custom skill
+- **THEN** its recognized extensions move into namespaced string-valued metadata
+- **AND** the Markdown body remains byte-for-byte unchanged
+- **AND** supporting files and unrelated standard metadata are preserved
+- **AND** a second migration makes no changes
+
+#### Scenario: Conflicting representations
+- **WHEN** a skill declares different values for a legacy extension and its namespaced replacement
+- **THEN** normalization and migration report the conflict
+- **AND** migration does not overwrite either representation
+
+#### Scenario: Batch migration preflight
+- **WHEN** an unnamed migration selects multiple skills and any selected header is invalid or conflicts
+- **THEN** the command reports the error before rewriting any selected header
+
+### Requirement: Optional Native Skill Export
+The CLI SHALL offer explicit `skill export --target agents` to project standard-valid canonical skills and support files into repository-local `.agents/skills/<name>/`. `.reffy/skills/` SHALL remain canonical. Export SHALL use complete copied directories, preserve resource-relative paths and executable permissions where applicable, and maintain versioned ownership records outside the artifact manifest.
+
+#### Scenario: Explicit installation and repeat export
+- **WHEN** a user exports standard-valid skills to the agents target
+- **THEN** complete skill directories are installed with matching directory/header names and usable support-file references
+- **AND** repeat export with unchanged sources makes no content changes
+- **AND** canonical sources and manifest artifact entries remain authoritative and unchanged by export
+
+#### Scenario: Destination conflict or unsafe resource
+- **WHEN** export preflight encounters an untracked destination, locally modified tracked content, unexpected files, a symlink, or unsafe traversal
+- **THEN** it reports the conflict and writes no destinations in that batch
+- **AND** it preserves user-authored content
+
+#### Scenario: Safe explicit refresh
+- **WHEN** sources change or disappear and the user re-exports
+- **THEN** previously exported, unmodified files are refreshed or removed according to current sources
+- **AND** missing tracked destinations can be recreated
+- **AND** ownership records reflect successful writes and permit retry after interrupted I/O
+
+#### Scenario: Initialization and compatibility boundaries
+- **WHEN** a user runs ordinary init without export
+- **THEN** no native export is created or refreshed
+- **AND** export of legacy nonstandard headers fails with migration guidance before any destination writes
+- **AND** unknown export targets are rejected
+
+### Requirement: Skill Conformance Coverage
+The project SHALL exercise parsing, standard constraints, legacy migration, descriptor compatibility, and native export through regression and CLI integration coverage. CI SHALL validate freshly generated managed and custom skill fixtures with strict Reffy validation and an upstream reference validator pinned to an immutable revision, while keeping that validator out of production runtime dependencies.
+
+#### Scenario: Generated output fails upstream conformance
+- **WHEN** a generated managed or custom skill fixture violates the pinned reference validator's contract
+- **THEN** CI fails and identifies the offending fixture
+- **AND** local Reffy validation success alone cannot satisfy this gate
+
+#### Scenario: Behavioral regressions
+- **WHEN** test suites run
+- **THEN** they exercise minimal/optional headers, multiline and quoted YAML, invalid types and lengths, legacy conflicts and migration preservation, discovery output, and safe/idempotent native export
+- **AND** core CLI commands remain usable offline without the upstream Python validator installed
+
+### Requirement: Skill Selection and Workflow Evaluation
+Release verification SHALL include representative selection prompts, negative cases, and workflow checks for built-in skills, including remote and superseding-change intent. Evaluation inputs, expected selections, execution procedure, outcomes, and any unavailable native-client check SHALL be recorded in maintained project test/documentation resources.
+
+#### Scenario: Description-driven evaluation
+- **WHEN** built-in descriptions change
+- **THEN** evaluation checks selection using names and descriptions without requiring Reffy trigger metadata
+- **AND** includes unrelated prompts that should not select a skill and representative procedure outcomes
+
+#### Scenario: Native discovery verification
+- **WHEN** the native export feature is prepared for release
+- **THEN** verification attempts discovery and loading through an available compatible client
+- **AND** any unavailable client execution is recorded as a limitation rather than reported as a passed integration check
