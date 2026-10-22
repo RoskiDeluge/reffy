@@ -195,6 +195,7 @@ export async function readRemoteConfig(repoRoot: string): Promise<RemoteLinkConf
     version: REMOTE_CONFIG_VERSION,
     provider: REMOTE_PROVIDER,
     manager,
+    ...(isNonEmptyString(parsed.application_id) ? { application_id: parsed.application_id.trim() } : {}),
     targets,
   };
 }
@@ -358,9 +359,69 @@ export interface ManagerProjectResponse {
   project?: { project_id?: string; metadata?: Record<string, unknown> };
 }
 
+/** Descriptor fields the CLI may send. paseo-core mints `id` and rejects any other field. */
+export interface ApplicationDescriptorInput {
+  name?: string;
+  description?: string;
+  owner?: string;
+}
+
+export interface ApplicationDescriptor {
+  id: string | null;
+  name: string | null;
+  description: string | null;
+  owner: string | null;
+}
+
+const APPLICATION_FIELD_LIMITS: Record<keyof ApplicationDescriptorInput, { min: number; max: number }> = {
+  name: { min: 1, max: 200 },
+  description: { min: 0, max: 2000 },
+  owner: { min: 1, max: 256 },
+};
+
+/** Trims the supplied fields, drops absent ones, and enforces paseo-core's length rules. */
+export function normalizeApplicationDescriptor(input: ApplicationDescriptorInput): ApplicationDescriptorInput {
+  const result: ApplicationDescriptorInput = {};
+  for (const field of ["name", "description", "owner"] as const) {
+    const raw = input[field];
+    if (raw === undefined) continue;
+    const value = raw.trim();
+    const { min, max } = APPLICATION_FIELD_LIMITS[field];
+    if (value.length < min || value.length > max) {
+      throw new Error(
+        `Application ${field} must be ${min === 0 ? `at most ${String(max)}` : `${String(min)}-${String(max)}`} characters (got ${String(value.length)})`,
+      );
+    }
+    result[field] = value;
+  }
+  return result;
+}
+
+export function defaultApplicationDescriptor(
+  workspaceId: string,
+  options: { label?: string; owner?: string } = {},
+): ApplicationDescriptorInput {
+  const label = options.label?.trim();
+  const owner = options.owner?.trim();
+  return {
+    name: workspaceId,
+    description: label || `Reffy workspace backend for ${workspaceId}`,
+    ...(owner ? { owner } : {}),
+  };
+}
+
+function readApplicationDescriptor(value: unknown): ApplicationDescriptor | null {
+  // Paseo returns either `{ application: {...} }` or the bare descriptor.
+  const source = isObject(value) && isObject(value.application) ? value.application : value;
+  if (!isObject(source)) return null;
+  const field = (key: string): string | null => (typeof source[key] === "string" ? source[key] : null);
+  return { id: field("id"), name: field("name"), description: field("description"), owner: field("owner") };
+}
+
 export interface CreateManagerActorResult {
   actorId: string;
   managerAuthToken: string;
+  application?: ApplicationDescriptor;
 }
 
 export class PaseoManagerClient {
@@ -395,8 +456,12 @@ export class PaseoManagerClient {
     return result.podName.trim();
   }
 
-  async createManagerActor(podName: string, provisioningToken: string): Promise<CreateManagerActorResult> {
-    const result = await httpJson<{ actorId: string; managerAuthToken: string }>(
+  async createManagerActor(
+    podName: string,
+    provisioningToken: string,
+    application?: ApplicationDescriptorInput,
+  ): Promise<CreateManagerActorResult> {
+    const result = await httpJson<{ actorId: string; managerAuthToken: string; application?: unknown }>(
       `${this.endpoint}/pods/${podName}/actors`,
       {
         method: "POST",
@@ -408,6 +473,8 @@ export class PaseoManagerClient {
             version: REMOTE_MANAGER_VERSION,
             schema: { type: "object" },
             params: {},
+            // Must sit inside `config`; paseo-core silently ignores a sibling block.
+            ...(application ? { application } : {}),
           },
         }),
       },
@@ -420,7 +487,30 @@ export class PaseoManagerClient {
         "Paseo create manager actor response missing managerAuthToken. The backend may not yet expose bearer-token issuance for reffyWorkspaceManager.v1.",
       );
     }
-    return { actorId: result.actorId.trim(), managerAuthToken: result.managerAuthToken.trim() };
+    const stored = readApplicationDescriptor(result.application);
+    return {
+      actorId: result.actorId.trim(),
+      managerAuthToken: result.managerAuthToken.trim(),
+      ...(stored ? { application: stored } : {}),
+    };
+  }
+
+  async getApplication(): Promise<ApplicationDescriptor> {
+    const result = await httpJson<unknown>(`${this.base()}/application`, { token: this.requireToken() });
+    const descriptor = readApplicationDescriptor(result);
+    if (!descriptor) throw new Error("Manager getApplication response missing application descriptor");
+    return descriptor;
+  }
+
+  async setApplication(patch: ApplicationDescriptorInput): Promise<ApplicationDescriptor> {
+    const result = await httpJson<unknown>(`${this.base()}/application`, {
+      method: "PUT",
+      token: this.requireToken(),
+      body: JSON.stringify(patch),
+    });
+    const descriptor = readApplicationDescriptor(result);
+    if (!descriptor) throw new Error("Manager setApplication response missing application descriptor");
+    return descriptor;
   }
 
   async createWorkspace(workspaceId: string, metadata?: Record<string, unknown>): Promise<RemoteActorIdentity> {
@@ -603,6 +693,8 @@ export interface EnsureManagerInitOptions {
   existingConfig: RemoteLinkConfig | null;
   // Required only when a manager actor will be created. Sent on that one request; never persisted.
   provisioningToken?: string;
+  // Sent inside `config` only when a manager actor is created.
+  application?: ApplicationDescriptorInput;
 }
 
 export interface EnsureManagerInitResult {
@@ -611,6 +703,8 @@ export interface EnsureManagerInitResult {
   created_actor: boolean;
   /** Bearer token returned by the backend when a fresh manager actor was created. Only set when `created_actor` is true. */
   manager_auth_token?: string;
+  /** Stored descriptor returned by Paseo. Only set when `created_actor` is true and Paseo returned one. */
+  application?: ApplicationDescriptor;
 }
 
 export const PROVISIONING_TOKEN_REQUIRED_MESSAGE =
@@ -631,6 +725,7 @@ export async function ensureManagerInit(
   let created_pod = false;
   let created_actor = false;
   let manager_auth_token: string | undefined;
+  let application: ApplicationDescriptor | undefined;
 
   if (!podName && !options.provision) {
     throw new Error(
@@ -644,6 +739,8 @@ export async function ensureManagerInit(
   if (!actorId && options.provision && !provisioningToken) {
     throw new Error(PROVISIONING_TOKEN_REQUIRED_MESSAGE);
   }
+  // Validate the descriptor up front too, so a rejected value never orphans a fresh pod.
+  const descriptor = options.application ? normalizeApplicationDescriptor(options.application) : undefined;
 
   // createPod is unauthenticated. createManagerActor requires the deployment provisioning
   // credential (PASEO_PROVISIONING_TOKEN); the manager actor it creates issues the manager token.
@@ -666,20 +763,25 @@ export async function ensureManagerInit(
     const result = await new PaseoManagerClient(endpoint, {
       pod_name: podName,
       actor_id: "pending-actor",
-    }).createManagerActor(podName, provisioningToken);
+    }).createManagerActor(podName, provisioningToken, descriptor);
     actorId = result.actorId;
     manager_auth_token = result.managerAuthToken;
+    application = result.application;
     created_actor = true;
   }
 
+  // The application id belongs to the manager actor, so keep a saved one only for the same manager.
+  const sameManager = prior?.manager.pod_name === podName && prior.manager.actor_id === actorId;
+  const application_id = application?.id ?? (sameManager ? prior.application_id : undefined);
   const config: RemoteLinkConfig = {
     version: REMOTE_CONFIG_VERSION,
     provider: REMOTE_PROVIDER,
     manager: { pod_name: podName, actor_id: actorId },
+    ...(application_id ? { application_id } : {}),
     targets: prior?.targets ?? {},
   };
   await writeRemoteConfig(repoRoot, config);
-  return { config, created_pod, created_actor, manager_auth_token };
+  return { config, created_pod, created_actor, manager_auth_token, application };
 }
 
 export type WorkspaceTargetMode = "create" | "resolve" | "auto";

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, promises as fs, statSync } from "node:fs";
 import path from "node:path";
@@ -14,10 +15,12 @@ import { listPlanningChanges, showPlanningChange, validatePlanningChange } from 
 import {
   assertWorkspaceSummaryIdentity,
   collectWorkspaceDocuments,
+  defaultApplicationDescriptor,
   describeRemoteLinkage,
   ensureManagerInit,
   ensureWorkspaceTarget,
   extractWorkspaceSummaryIdentity,
+  normalizeApplicationDescriptor,
   PaseoManagerClient,
   PaseoWorkspaceBackendClient,
   PROVISIONING_TOKEN_REQUIRED_MESSAGE,
@@ -31,6 +34,9 @@ import {
   updateRemoteConfigMetadata,
   upsertWorkspaceTarget,
   validateImportResult,
+  writeRemoteConfig,
+  type ApplicationDescriptor,
+  type ApplicationDescriptorInput,
   type ResolvedRemoteTarget,
 } from "./remote.js";
 import { DEFAULT_REFS_DIRNAME, detectWorkspaceState, looksLikeRefsDir } from "./refs-paths.js";
@@ -447,6 +453,9 @@ interface RemoteCliArgs {
   create: boolean;
   resolve: boolean;
   label?: string;
+  applicationName?: string;
+  applicationDescription?: string;
+  owner?: string;
   yes: boolean;
 }
 
@@ -657,7 +666,7 @@ function planUsage(): string {
 function remoteUsage(): string {
   return [
     "Usage:",
-    "  reffy remote init [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--manager-pod NAME] [--manager-actor ID] [--provision] [--create|--resolve] [--label TEXT] [--env-file PATH]",
+    "  reffy remote init [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--manager-pod NAME] [--manager-actor ID] [--provision] [--create|--resolve] [--label TEXT] [--name TEXT] [--description TEXT] [--owner TEXT] [--env-file PATH]",
     "  reffy remote status [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
     "  reffy remote push [--repo PATH] [--output text|json] [--workspace-id ID] [--env-file PATH]",
     "  reffy remote ls [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--prefix PATH] [--env-file PATH]",
@@ -668,6 +677,8 @@ function remoteUsage(): string {
     "  reffy remote workspace delete <workspace-id> --yes [--repo PATH] [--output text|json] [--env-file PATH]",
     "  reffy remote project register [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
     "  reffy remote project list [--repo PATH] [--output text|json] [--workspace-id ID] [--env-file PATH]",
+    "  reffy remote application get [--repo PATH] [--output text|json] [--env-file PATH]",
+    "  reffy remote application set [--name TEXT] [--description TEXT] [--owner TEXT] [--repo PATH] [--output text|json] [--env-file PATH]",
     "",
     "Options:",
     "  --workspace-id ID Selected workspace projection. Required when the manifest has multiple workspace_ids; otherwise inferred.",
@@ -679,6 +690,9 @@ function remoteUsage(): string {
     "  --create          During `remote init`, force-create the workspace through the manager (recoverable via 409).",
     "  --resolve         During `remote init`, resolve an existing workspace through the manager and fail if it does not exist.",
     "  --label TEXT      Optional human-readable workspace label passed to `workspace create`.",
+    "  --name TEXT       Application name. On `init --provision`, defaults to the workspace id.",
+    "  --description TEXT Application description. On `init --provision`, defaults to --label or \"Reffy workspace backend for <workspace-id>\".",
+    "  --owner TEXT      Application owner. On `init --provision`, defaults to PASEO_APPLICATION_OWNER, then `git config user.email`.",
     "  --yes             Confirm a destructive operation (required for `workspace delete`).",
     "  --prefix PATH     Prefix filter for `remote ls`.",
     "  --env-file PATH   Dotenv file to load before resolving env-backed options. Defaults to .env.",
@@ -870,6 +884,9 @@ const REMOTE_VALUE_FLAGS = new Set([
   "--workspace-id",
   "--project-id",
   "--label",
+  "--name",
+  "--description",
+  "--owner",
 ]);
 
 const REMOTE_BOOLEAN_FLAGS = new Set(["--json", "--provision", "--create", "--resolve", "--yes"]);
@@ -911,6 +928,12 @@ function parseRemoteArgs(argv: string[]): RemoteCliArgs {
     if (arg.startsWith("--project-id=")) { args.projectId = arg.split("=", 2)[1]; continue; }
     if (arg === "--label") { args.label = setStr(arg, argv[++i]); continue; }
     if (arg.startsWith("--label=")) { args.label = arg.split("=", 2)[1]; continue; }
+    if (arg === "--name") { args.applicationName = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--name=")) { args.applicationName = arg.split("=", 2)[1]; continue; }
+    if (arg === "--description") { args.applicationDescription = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--description=")) { args.applicationDescription = arg.split("=", 2)[1]; continue; }
+    if (arg === "--owner") { args.owner = setStr(arg, argv[++i]); continue; }
+    if (arg.startsWith("--owner=")) { args.owner = arg.split("=", 2)[1]; continue; }
     if (arg === "--provision") { args.provision = true; continue; }
     if (arg === "--create") { args.create = true; continue; }
     if (arg === "--resolve") { args.resolve = true; continue; }
@@ -1038,6 +1061,28 @@ function resolvePaseoProvisioningToken(opts: { required: boolean }): string | un
     throw new Error(PROVISIONING_TOKEN_REQUIRED_MESSAGE);
   }
   return token;
+}
+
+// Paseo has no user identity; the owner is opaque text the CLI chooses, recorded verbatim.
+function resolveApplicationOwner(parsed: RemoteCliArgs): string | undefined {
+  const explicit = parsed.owner?.trim() || process.env.PASEO_APPLICATION_OWNER?.trim();
+  if (explicit) return explicit;
+  try {
+    const email = execFileSync("git", ["config", "user.email"], {
+      cwd: parsed.repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return email || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatApplicationDescriptor(descriptor: ApplicationDescriptorInput | ApplicationDescriptor): string {
+  const show = (value: string | null | undefined) => (value == null ? "(none)" : JSON.stringify(value));
+  const id = "id" in descriptor ? `id=${show(descriptor.id)} ` : "";
+  return `${id}name=${show(descriptor.name)} description=${show(descriptor.description)} owner=${show(descriptor.owner)}`;
 }
 
 function parseRemoteErrorCode(body: string): string | undefined {
@@ -1191,6 +1236,69 @@ async function handleRemoteWorkspaceSubcommand(
     return 0;
   } catch (error) {
     return reportError(`workspace ${verb}`, error);
+  }
+}
+
+async function handleRemoteApplicationSubcommand(
+  parsed: RemoteCliArgs,
+  remoteArgs: string[],
+  output: "text" | "json",
+  reportError: (subcmd: string, error: unknown) => number,
+): Promise<number> {
+  const verb = getRemotePositionalArgs(remoteArgs)[0];
+  if (verb !== "get" && verb !== "set") {
+    console.error("reffy remote application requires a subcommand: get | set");
+    console.error(remoteUsage());
+    return 1;
+  }
+
+  try {
+    let patch: ApplicationDescriptorInput | undefined;
+    if (verb === "set") {
+      patch = normalizeApplicationDescriptor({
+        name: parsed.applicationName,
+        description: parsed.applicationDescription,
+        owner: parsed.owner,
+      });
+      if (Object.keys(patch).length === 0) {
+        throw new Error("reffy remote application set requires at least one of --name, --description, --owner");
+      }
+    }
+
+    await loadDotEnvIfPresent(parsed.repoRoot, parsed.envFile ?? ".env");
+    const endpoint = resolvePaseoEndpoint(parsed);
+    const token = resolvePaseoToken({ required: true }) as string;
+    const savedConfig = await readRemoteConfig(parsed.repoRoot);
+    if (!savedConfig) {
+      throw new Error(
+        "Remote linkage is not initialized. Run `reffy remote init --provision` (or with --manager-pod/--manager-actor) first.",
+      );
+    }
+
+    const manager = new PaseoManagerClient(endpoint, savedConfig.manager, token);
+    const application = patch ? await manager.setApplication(patch) : await manager.getApplication();
+    if (application.id && application.id !== savedConfig.application_id) {
+      await writeRemoteConfig(parsed.repoRoot, { ...savedConfig, application_id: application.id });
+    }
+
+    const payload = {
+      status: "ok",
+      command: "remote",
+      subcommand: `application ${verb}`,
+      manager: savedConfig.manager,
+      application,
+    };
+    if (output === "json") {
+      printResult(output, payload);
+    } else {
+      console.log(`Application id: ${application.id ?? "(none)"}`);
+      console.log(`Name: ${application.name ?? "(none)"}`);
+      console.log(`Description: ${application.description ?? "(none)"}`);
+      console.log(`Owner: ${application.owner ?? "(none)"}`);
+    }
+    return 0;
+  } catch (error) {
+    return reportError(`application ${verb}`, error);
   }
 }
 
@@ -1386,6 +1494,9 @@ async function main(): Promise<number> {
       if (subcommand === "project") {
         return await handleRemoteProjectSubcommand(parsed, remoteArgs, output, reportError);
       }
+      if (subcommand === "application") {
+        return await handleRemoteApplicationSubcommand(parsed, remoteArgs, output, reportError);
+      }
       if (subcommand === "init") {
         const { identity, workspaceId, projectId, configPath, savedConfig, replacedLegacy } =
           await resolveRemoteContext(parsed, { tolerateLegacyConfig: true });
@@ -1402,6 +1513,17 @@ async function main(): Promise<number> {
         const provisioningToken = willMintToken
           ? resolvePaseoProvisioningToken({ required: true })
           : undefined;
+        // The descriptor is sent only when this run creates the manager actor (the application).
+        const application = willMintToken
+          ? normalizeApplicationDescriptor({
+              ...defaultApplicationDescriptor(workspaceId, {
+                label: parsed.label,
+                owner: resolveApplicationOwner(parsed),
+              }),
+              ...(parsed.applicationName !== undefined ? { name: parsed.applicationName } : {}),
+              ...(parsed.applicationDescription !== undefined ? { description: parsed.applicationDescription } : {}),
+            })
+          : undefined;
 
         const managerInit = await ensureManagerInit(parsed.repoRoot, {
           endpoint,
@@ -1410,6 +1532,7 @@ async function main(): Promise<number> {
           provision: parsed.provision,
           existingConfig: savedConfig,
           provisioningToken,
+          application,
         });
 
         const effectiveToken = managerInit.manager_auth_token ?? tokenFromEnv;
@@ -1460,6 +1583,9 @@ async function main(): Promise<number> {
           // One-time issuance: present in this response only; never persisted to disk.
           manager_token: managerInit.manager_auth_token ?? null,
           manager_token_persisted: false,
+          application_sent: application ?? null,
+          application: managerInit.application ?? null,
+          application_id: targetResult.config.application_id ?? null,
         };
 
         if (output === "json") {
@@ -1479,6 +1605,12 @@ async function main(): Promise<number> {
           console.log(`Project registration: ${payload.project_registration}`);
           console.log(`Created pod: ${payload.created_pod ? "yes" : "no"}`);
           console.log(`Created manager actor: ${payload.created_manager_actor ? "yes" : "no"}`);
+          if (payload.application_sent) {
+            console.log(`Application descriptor sent: ${formatApplicationDescriptor(payload.application_sent)}`);
+          }
+          if (payload.application) {
+            console.log(`Application stored: ${formatApplicationDescriptor(payload.application)}`);
+          }
           console.log(`Configured workspace ids: ${payload.configured_workspace_ids.join(", ")}`);
           if (payload.gitignore_added.length > 0) {
             console.log(`Updated .gitignore: ${payload.gitignore_added.join(", ")}`);

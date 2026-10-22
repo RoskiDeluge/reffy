@@ -38,6 +38,8 @@ export interface RemoteLinkConfig {
   version: number;
   provider: "paseo";
   manager: RemoteActorIdentity;
+  /** Paseo application id of the manager actor, as registered with the control plane. */
+  application_id?: string;
   targets: Record<string, RemoteTarget>;
 }
 

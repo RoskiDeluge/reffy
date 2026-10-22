@@ -201,6 +201,14 @@ PASEO_PROVISIONING_TOKEN="<provisioning credential from the Paseo operator>" \
 
 `--provision` creates a fresh pod and `reffyWorkspaceManager.v1` actor. Creating the actor requires `PASEO_PROVISIONING_TOKEN`, the deployment's provisioning credential held by the Paseo operator. The CLI sends it only on the actor-creation request, never persists it, and never uses it in place of `PASEO_TOKEN` (or vice versa). If it is missing, `init --provision` fails before any network call. Joining an existing manager does not need it. The manager mints a bearer token and the CLI prints it once with strong "save this now" guidance. Save it to your team secret store immediately — the CLI does not keep a copy.
 
+The new manager is a Paseo **application** that the deployment registers with its control plane. `init --provision` sends an application descriptor with it:
+
+- `name` — the workspace id (override with `--name`)
+- `description` — `--label` when given, otherwise `Reffy workspace backend for <workspace-id>` (override with `--description`)
+- `owner` — `--owner`, else `PASEO_APPLICATION_OWNER`, else the repo's `git config user.email`; omitted when none is set
+
+The output shows the descriptor sent and the application Paseo stored, and the returned application id is saved as `application_id` in `.reffy/state/remote.json`.
+
 After provisioning, export it for subsequent commands:
 
 ```bash
@@ -238,6 +246,7 @@ After `reffy remote init`, Reffy stores manager and workspace-backend identifier
   "version": 4,
   "provider": "paseo",
   "manager": { "pod_name": "...", "actor_id": "..." },
+  "application_id": "...",
   "targets": {
     "my-project": {
       "workspace_backend": { "pod_name": "...", "actor_id": "..." },
@@ -264,7 +273,11 @@ reffy remote workspace get <workspace-id>
 reffy remote workspace delete <workspace-id> --yes
 reffy remote project register [--workspace-id <id>] [--project-id <id>]
 reffy remote project list [--workspace-id <id>]
+reffy remote application get
+reffy remote application set [--name <text>] [--description <text>] [--owner <text>]
 ```
+
+`application set` merges only the fields you pass into the manager's application descriptor (use it to describe managers provisioned before descriptors were sent); Paseo re-registers the updated descriptor with its control plane.
 
 `workspace delete` is destructive (it removes the shared workspace and all of its contributions) and requires `--yes` to proceed. The CLI also drops the workspace entry from the local linkage file on success, and treats a `404` from the manager as an idempotent "already gone" outcome.
 

@@ -6,6 +6,15 @@ Earlier releases are available in the [GitHub release history](https://github.co
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-22
+
+### Added
+- `reffy remote init --provision` sends an application descriptor (`name`, `description`, `owner`) when it creates a Paseo manager, so the application registers with the deployment's control plane with a name and owner instead of blank fields. `name` defaults to the workspace id and `description` to `--label` (or `Reffy workspace backend for <workspace-id>`); `owner` comes from `--owner`, `PASEO_APPLICATION_OWNER`, or `git config user.email`. Init output reports the stored application, and its id is saved as `application_id` in `.reffy/state/remote.json`.
+- `reffy remote application get` and `reffy remote application set [--name] [--description] [--owner]` inspect and update the manager's application descriptor with `PASEO_TOKEN`.
+
+### Upgrading
+- Managers provisioned before this release have blank application descriptors. Describe them with `reffy remote application set --name <name> --description <text> --owner <owner>` from a repo linked to that manager.
+
 ## [1.10.0] - 2026-10-20
 
 ### Added

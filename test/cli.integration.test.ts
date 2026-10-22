@@ -25,11 +25,15 @@ function isolatedEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-async function runCli(args: string[], cwd = process.cwd()): Promise<{ stdout: string; stderr: string; code: number }> {
+async function runCli(
+  args: string[],
+  cwd = process.cwd(),
+  extraEnv: NodeJS.ProcessEnv = {},
+): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
     const { stdout, stderr } = await execFileAsync("node", [CLI_PATH, ...args], {
       cwd,
-      env: isolatedEnv(),
+      env: { ...isolatedEnv(), ...extraEnv },
     });
     return { stdout, stderr, code: 0 };
   } catch (error) {
@@ -1612,6 +1616,238 @@ describe("remote init provisioning credential", () => {
       const parsed = JSON.parse(result.stdout) as { error: string };
       expect(parsed.error).toContain("503");
       expect(parsed.error).not.toContain("no provisioning credential configured");
+    } finally {
+      await paseo.close();
+    }
+  });
+});
+
+describe("remote application descriptor", () => {
+  type SeenRequest = { method: string; path: string; auth: string | null; body: unknown };
+  // Hide global/system git config so `git config user.email` resolves only what a test sets.
+  const NO_GIT_IDENTITY: NodeJS.ProcessEnv = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+
+  async function startFakePaseo(): Promise<{ endpoint: string; seen: SeenRequest[]; close: () => Promise<void> }> {
+    const seen: SeenRequest[] = [];
+    let stored: Record<string, unknown> = { id: "app-123", name: null, description: null, owner: null };
+    const server = createServer((req, res) => {
+      const pathname = new URL(req.url ?? "/", "http://fake").pathname;
+      let raw = "";
+      req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
+      req.on("end", () => {
+        const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined;
+        seen.push({ method: req.method ?? "GET", path: pathname, auth: req.headers.authorization ?? null, body });
+        const send = (status: number, payload: unknown) => {
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(payload));
+        };
+        if (req.method === "POST" && pathname === "/pods") return send(200, { podName: "pod-new" });
+        if (req.method === "POST" && /^\/pods\/[^/]+\/actors$/.test(pathname)) {
+          const config = (body?.config ?? {}) as { application?: Record<string, unknown> };
+          stored = { id: "app-123", name: null, description: null, owner: null, ...config.application };
+          return send(200, { actorId: "actor-new", managerAuthToken: "minted-manager-token", application: stored });
+        }
+        if (/\/application$/.test(pathname)) {
+          if (req.method === "PUT") stored = { ...stored, ...body };
+          return send(200, { application: stored });
+        }
+        if (req.method === "POST" && /\/workspaces$/.test(pathname)) {
+          return send(200, { workspace: { workspace_id: "ws", backend: { pod_name: "pod-ws", actor_id: "actor-ws" } } });
+        }
+        if (req.method === "POST" && /\/workspaces\/[^/]+\/projects\/[^/]+$/.test(pathname)) {
+          return send(200, { ok: true });
+        }
+        return send(404, "not found");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    return {
+      endpoint: `http://127.0.0.1:${String(port)}`,
+      seen,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  async function setupRepo(paseoEndpoint: string, extraEnvLines: string[] = []) {
+    const repo = await createTempRepo();
+    await writeFile(
+      path.join(repo.repoRoot, ".env"),
+      [`PASEO_ENDPOINT="${paseoEndpoint}"`, 'PASEO_PROVISIONING_TOKEN="prov-secret"', ...extraEnvLines].join("\n") + "\n",
+      "utf8",
+    );
+    const manifest = JSON.parse(await readFile(repo.manifestPath, "utf8")) as { workspace_ids: string[] };
+    return { ...repo, ws: manifest.workspace_ids[0] };
+  }
+
+  function actorCreation(seen: SeenRequest[]) {
+    return seen.find((req) => req.method === "POST" && /^\/pods\/[^/]+\/actors$/.test(req.path));
+  }
+
+  it("sends default name/description and git email owner inside config, and records the application id", async () => {
+    const paseo = await startFakePaseo();
+    try {
+      const repo = await setupRepo(paseo.endpoint);
+      await execFileAsync("git", ["init", "-q"], { cwd: repo.repoRoot });
+      await execFileAsync("git", ["config", "user.email", "dev@example.com"], { cwd: repo.repoRoot });
+      const result = await runCli(
+        ["remote", "init", "--provision", "--repo", repo.repoRoot, "--output", "json"],
+        process.cwd(),
+        NO_GIT_IDENTITY,
+      );
+      expect(result.code).toBe(0);
+      const body = actorCreation(paseo.seen)?.body as Record<string, unknown>;
+      expect(body).not.toHaveProperty("application");
+      expect((body.config as Record<string, unknown>).application).toEqual({
+        name: repo.ws,
+        description: `Reffy workspace backend for ${repo.ws}`,
+        owner: "dev@example.com",
+      });
+      const parsed = JSON.parse(result.stdout) as { application: { id: string }; application_id: string };
+      expect(parsed.application.id).toBe("app-123");
+      expect(parsed.application_id).toBe("app-123");
+      const persisted = JSON.parse(await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8")) as {
+        application_id?: string;
+      };
+      expect(persisted.application_id).toBe("app-123");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("uses --label for the description and PASEO_APPLICATION_OWNER, with --owner taking precedence", async () => {
+    const paseo = await startFakePaseo();
+    try {
+      const repo = await setupRepo(paseo.endpoint, ['PASEO_APPLICATION_OWNER="env-owner"']);
+      let result = await runCli([
+        "remote", "init", "--provision", "--label", "Team A space",
+        "--repo", repo.repoRoot, "--output", "json",
+      ]);
+      expect(result.code).toBe(0);
+      expect((actorCreation(paseo.seen)?.body as { config: { application: unknown } }).config.application).toEqual({
+        name: repo.ws,
+        description: "Team A space",
+        owner: "env-owner",
+      });
+
+      const repo2 = await setupRepo(paseo.endpoint, ['PASEO_APPLICATION_OWNER="env-owner"']);
+      paseo.seen.length = 0;
+      result = await runCli([
+        "remote", "init", "--provision", "--owner", "flag-owner", "--name", "Custom",
+        "--repo", repo2.repoRoot, "--output", "json",
+      ]);
+      expect(result.code).toBe(0);
+      expect((actorCreation(paseo.seen)?.body as { config: { application: unknown } }).config.application).toEqual({
+        name: "Custom",
+        description: `Reffy workspace backend for ${repo2.ws}`,
+        owner: "flag-owner",
+      });
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("omits owner when no source yields one", async () => {
+    const paseo = await startFakePaseo();
+    try {
+      const repo = await setupRepo(paseo.endpoint);
+      const result = await runCli(
+        ["remote", "init", "--provision", "--repo", repo.repoRoot, "--output", "json"],
+        process.cwd(),
+        NO_GIT_IDENTITY,
+      );
+      expect(result.code).toBe(0);
+      expect((actorCreation(paseo.seen)?.body as { config: { application: unknown } }).config.application).toEqual({
+        name: repo.ws,
+        description: `Reffy workspace backend for ${repo.ws}`,
+      });
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("rejects an invalid descriptor before any request", async () => {
+    const paseo = await startFakePaseo();
+    try {
+      const repo = await setupRepo(paseo.endpoint);
+      const result = await runCli([
+        "remote", "init", "--provision", "--owner", "x".repeat(257),
+        "--repo", repo.repoRoot, "--output", "json",
+      ]);
+      expect(result.code).toBe(1);
+      expect((JSON.parse(result.stdout) as { error: string }).error).toContain("Application owner");
+      expect(paseo.seen).toEqual([]);
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("sends no descriptor when joining an existing manager", async () => {
+    const paseo = await startFakePaseo();
+    try {
+      const repo = await setupRepo(paseo.endpoint, ['PASEO_TOKEN="manager-token"']);
+      const result = await runCli([
+        "remote", "init", "--manager-pod", "pod-mgr", "--manager-actor", "actor-mgr",
+        "--repo", repo.repoRoot, "--output", "json",
+      ]);
+      expect(result.code).toBe(0);
+      expect(actorCreation(paseo.seen)).toBeUndefined();
+      expect((JSON.parse(result.stdout) as { application_sent: unknown }).application_sent).toBeNull();
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("application get and set use the manager token and record the id", async () => {
+    const paseo = await startFakePaseo();
+    try {
+      const repo = await setupRepo(paseo.endpoint, ['PASEO_TOKEN="manager-token"']);
+      await runCli([
+        "remote", "init", "--manager-pod", "pod-mgr", "--manager-actor", "actor-mgr", "--repo", repo.repoRoot, "--output", "json",
+      ]);
+      paseo.seen.length = 0;
+
+      const set = await runCli([
+        "remote", "application", "set", "--name", "servco-fde", "--owner", "ops@example.com",
+        "--repo", repo.repoRoot, "--output", "json",
+      ]);
+      expect(set.code).toBe(0);
+      expect(paseo.seen).toEqual([
+        {
+          method: "PUT",
+          path: "/pods/pod-mgr/actors/actor-mgr/application",
+          auth: "Bearer manager-token",
+          body: { name: "servco-fde", owner: "ops@example.com" },
+        },
+      ]);
+      expect((JSON.parse(set.stdout) as { application: unknown }).application).toEqual({
+        id: "app-123",
+        name: "servco-fde",
+        description: null,
+        owner: "ops@example.com",
+      });
+
+      const get = await runCli(["remote", "application", "get", "--repo", repo.repoRoot]);
+      expect(get.code).toBe(0);
+      expect(get.stdout).toContain("Application id: app-123");
+      expect(get.stdout).toContain("Name: servco-fde");
+      const persisted = JSON.parse(await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8")) as {
+        application_id?: string;
+      };
+      expect(persisted.application_id).toBe("app-123");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("application set without fields fails before any request", async () => {
+    const paseo = await startFakePaseo();
+    try {
+      const repo = await setupRepo(paseo.endpoint, ['PASEO_TOKEN="manager-token"']);
+      const result = await runCli(["remote", "application", "set", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(1);
+      expect((JSON.parse(result.stdout) as { error: string }).error).toContain("--name, --description, --owner");
+      expect(paseo.seen).toEqual([]);
     } finally {
       await paseo.close();
     }

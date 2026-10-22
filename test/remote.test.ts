@@ -491,6 +491,38 @@ describe("manager provisioning credential", () => {
     ]);
   });
 
+  it("createManagerActor nests the application descriptor inside config and returns the stored one", async () => {
+    let body: unknown;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          actorId: "actor-new",
+          managerAuthToken: "minted-manager-token",
+          application: { id: "app-1", name: "ws", description: "d", owner: null },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    try {
+      const client = new PaseoManagerClient("https://paseo.example", { pod_name: "pod-new", actor_id: "pending-actor" });
+      const result = await client.createManagerActor("pod-new", "prov-secret", { name: "ws", description: "d" });
+      expect(result.application).toEqual({ id: "app-1", name: "ws", description: "d", owner: null });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(body).toEqual({
+      config: {
+        actorType: "reffyWorkspaceManager",
+        version: "v1",
+        schema: { type: "object" },
+        params: {},
+        application: { name: "ws", description: "d" },
+      },
+    });
+  });
+
   it("createPod sends no Authorization header", async () => {
     const fake = installFakeFetch(provisioningHandler);
     try {
