@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-03-19T23:54:59.641Z",
-  "updated_at": "2026-10-22T09:18:56.398Z",
+  "updated_at": "2026-11-24T00:34:21.627Z",
   "project_id": "reffy",
   "workspace_ids": [
     "nuveris-v1"
@@ -607,7 +607,7 @@
       "size_bytes": 5431,
       "tags": [],
       "created_at": "2026-10-22T09:01:35.477Z",
-      "updated_at": "2026-10-22T09:18:56.398Z",
+      "updated_at": "2026-10-22T09:20:37.530Z",
       "related_changes": [
         "add-paseo-application-descriptor"
       ],
@@ -626,7 +626,18 @@
       "size_bytes": 2247,
       "tags": [],
       "created_at": "2026-10-22T09:18:52.215Z",
-      "updated_at": "2026-10-22T09:18:52.215Z"
+      "updated_at": "2026-10-22T09:20:37.530Z"
+    },
+    {
+      "id": "25005834-21f1-4806-b448-b5651c7bb553",
+      "name": "reffy remote rfp git checkout sync",
+      "filename": "reffy-remote-rfp-git-checkout-sync.md",
+      "kind": "note",
+      "mime_type": "text/markdown",
+      "size_bytes": 6696,
+      "tags": [],
+      "created_at": "2026-11-24T00:34:21.627Z",
+      "updated_at": "2026-11-24T00:34:21.627Z"
     }
   ]
 }
