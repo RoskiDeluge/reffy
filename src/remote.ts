@@ -963,3 +963,63 @@ export async function collectWorkspaceDocuments(repoRoot: string): Promise<Remot
 
   return documents;
 }
+
+export const MASS_DELETION_THRESHOLD = 0.05;
+
+export interface PushPlan {
+  added: string[];
+  updated: string[];
+  unchanged: string[];
+  /** Remote paths missing locally: deleted by a pruning push, kept otherwise. */
+  remote_only: string[];
+  remote_document_count: number;
+}
+
+/**
+ * Classify each path relative to the selected remote project. A remote document without
+ * string content is treated as updated, since equality cannot be confirmed.
+ */
+export function computePushPlan(
+  local: RemoteDocument[],
+  remote: ProjectDocumentListResponse["documents"],
+): PushPlan {
+  const remoteByPath = new Map<string, string | undefined>();
+  for (const document of remote ?? []) {
+    if (typeof document.path !== "string" || !document.path) continue;
+    remoteByPath.set(document.path, typeof document.content === "string" ? document.content : undefined);
+  }
+
+  const plan: PushPlan = {
+    added: [],
+    updated: [],
+    unchanged: [],
+    remote_only: [],
+    remote_document_count: remoteByPath.size,
+  };
+  const localPaths = new Set<string>();
+  for (const document of local) {
+    localPaths.add(document.path);
+    if (!remoteByPath.has(document.path)) {
+      plan.added.push(document.path);
+    } else if (remoteByPath.get(document.path) === document.content) {
+      plan.unchanged.push(document.path);
+    } else {
+      plan.updated.push(document.path);
+    }
+  }
+  for (const remotePath of remoteByPath.keys()) {
+    if (!localPaths.has(remotePath)) plan.remote_only.push(remotePath);
+  }
+
+  plan.added.sort();
+  plan.updated.sort();
+  plan.unchanged.sort();
+  plan.remote_only.sort();
+  return plan;
+}
+
+/** True when pruning would delete more than the allowed share of the project's remote documents. */
+export function exceedsMassDeletionGuard(plan: PushPlan, threshold = MASS_DELETION_THRESHOLD): boolean {
+  if (plan.remote_document_count === 0) return false;
+  return plan.remote_only.length / plan.remote_document_count > threshold;
+}

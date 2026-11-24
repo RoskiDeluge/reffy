@@ -6,6 +6,16 @@ Earlier releases are available in the [GitHub release history](https://github.co
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** `reffy remote push` no longer deletes remote documents that are missing from the local `.reffy/` tree. It keeps them and lists them as "Kept on remote, not in this checkout", so a push from a branch that lacks another branch's plans no longer removes those plans. Push output now includes a plan (add, update, unchanged, and remote-only paths).
+
+### Added
+- `reffy remote push --dry-run` prints the push plan and changes nothing: no project registration, import, or `last_imported_at` update.
+- `reffy remote push --prune` opts into deleting remote documents missing locally. A pruning push that would delete more than 5% of the project's remote documents is refused before any change and lists the affected paths; add `--force` to proceed.
+
+### Upgrading
+- Scripts that relied on `reffy remote push` to remove deleted documents from the remote must add `--prune`. Run `reffy init` in each project to refresh the `sync-remote` skill.
+
 ## [1.11.0] - 2026-10-22
 
 ### Added

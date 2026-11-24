@@ -1853,3 +1853,209 @@ describe("remote application descriptor", () => {
     }
   });
 });
+
+describe("remote push safety", () => {
+  type SeenRequest = { method: string; path: string; body: Record<string, unknown> | undefined };
+  const MANAGER = "/pods/pod-mgr/actors/actor-mgr";
+  const BACKEND = "/pods/pod-ws/actors/actor-ws/workspace";
+
+  async function startFakeBackend(
+    remotePaths: string[],
+  ): Promise<{ endpoint: string; seen: SeenRequest[]; close: () => Promise<void> }> {
+    const seen: SeenRequest[] = [];
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://fake");
+      let raw = "";
+      req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
+      req.on("end", () => {
+        const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined;
+        seen.push({ method: req.method ?? "GET", path: url.pathname, body });
+        const send = (status: number, payload: unknown) => {
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(payload));
+        };
+        if (req.method === "GET" && /\/projects\/[^/]+\/documents$/.test(url.pathname)) {
+          return send(200, { documents: remotePaths.map((p) => ({ path: p, content: `remote ${p}` })) });
+        }
+        if (req.method === "POST" && /\/projects\/[^/]+\/import$/.test(url.pathname)) {
+          const documents = (body?.documents ?? []) as Array<{ path: string }>;
+          const local = new Set(documents.map((d) => d.path));
+          const deleted = body?.replace_missing ? remotePaths.filter((p) => !local.has(p)).length : 0;
+          return send(200, { imported: documents.length, created: 0, updated: documents.length, deleted });
+        }
+        if (req.method === "POST" && url.pathname.startsWith(`${MANAGER}/workspaces/`)) return send(200, { ok: true });
+        if (req.method === "GET" && url.pathname === BACKEND) {
+          return send(200, {
+            source: { actor_type: "reffyRemoteBackend", version: "v2" },
+            workspace: { workspace_id: "ws-test" },
+            stats: { document_count: remotePaths.length },
+          });
+        }
+        return send(404, { error: "not found" });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    return {
+      endpoint: `http://127.0.0.1:${String(port)}`,
+      seen,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  /** Temp repo linked to workspace "ws-test" with `artifactCount` local artifact files. */
+  async function setupLinkedRepo(endpoint: string, artifactCount: number) {
+    const repo = await createTempRepo();
+    const manifest = JSON.parse(await readFile(repo.manifestPath, "utf8")) as Record<string, unknown>;
+    manifest.workspace_ids = ["ws-test"];
+    await writeFile(repo.manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    for (let i = 0; i < artifactCount; i += 1) {
+      await writeFile(path.join(repo.artifactsDir, `local-${String(i)}.md`), `local ${String(i)}`, "utf8");
+    }
+    await writeFile(
+      path.join(repo.repoRoot, ".env"),
+      [`PASEO_ENDPOINT="${endpoint}"`, 'PASEO_TOKEN="test-token"'].join("\n"),
+      "utf8",
+    );
+    await overwriteFile(
+      path.join(repo.refsDir, "state", "remote.json"),
+      JSON.stringify({
+        version: 4,
+        provider: "paseo",
+        manager: { pod_name: "pod-mgr", actor_id: "actor-mgr" },
+        targets: { "ws-test": { workspace_backend: { pod_name: "pod-ws", actor_id: "actor-ws" } } },
+      }),
+    );
+    const localPaths = Array.from({ length: artifactCount }, (_, i) => `.reffy/artifacts/local-${String(i)}.md`);
+    return { ...repo, localPaths };
+  }
+
+  const mutating = (seen: SeenRequest[]) => seen.filter((req) => req.method !== "GET");
+  const importRequest = (seen: SeenRequest[]) => seen.find((req) => req.path.endsWith("/import"));
+
+  it("keeps remote-only documents by default and lists them", async () => {
+    const remote = ["/placeholder"];
+    const paseo = await startFakeBackend(remote);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, 3);
+      remote.splice(0, 1, ...repo.localPaths, ".reffy/artifacts/other-branch-plan.md");
+      const result = await runCli(["remote", "push", "--repo", repo.repoRoot, "--output", "text"]);
+      expect(result.code).toBe(0);
+      expect(importRequest(paseo.seen)?.body?.replace_missing).toBe(false);
+      expect(result.stdout).toContain("Mode: keep_missing");
+      expect(result.stdout).toContain("Kept on remote, not in this checkout:");
+      expect(result.stdout).toContain("- .reffy/artifacts/other-branch-plan.md");
+      expect(result.stdout).toContain("Pass --prune to delete these");
+      expect(result.stdout).toContain("Deleted: 0");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("dry run reports the plan without any mutating request or local state update", async () => {
+    const remote: string[] = [];
+    const paseo = await startFakeBackend(remote);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, 2);
+      remote.push(repo.localPaths[0], ".reffy/artifacts/gone.md");
+      const configBefore = await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8");
+      const result = await runCli(["remote", "push", "--dry-run", "--prune", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(0);
+      const parsed = JSON.parse(result.stdout) as {
+        dry_run: boolean;
+        mode: string;
+        mass_deletion_guard: string;
+        plan: { added: string[]; updated: string[]; deleted: string[] };
+      };
+      expect(parsed.dry_run).toBe(true);
+      expect(parsed.mode).toBe("prune");
+      expect(parsed.mass_deletion_guard).toBe("refused");
+      expect(parsed.plan.added).toContain(repo.localPaths[1]);
+      expect(parsed.plan.updated).toEqual([repo.localPaths[0]]);
+      expect(parsed.plan.deleted).toEqual([".reffy/artifacts/gone.md"]);
+      expect(mutating(paseo.seen)).toEqual([]);
+      expect(await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8")).toBe(configBefore);
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("refuses a pruning push above the mass-deletion threshold before any mutation", async () => {
+    const remote: string[] = [];
+    const paseo = await startFakeBackend(remote);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, 1);
+      remote.push(...repo.localPaths, ".reffy/artifacts/a.md", ".reffy/artifacts/b.md");
+      const result = await runCli(["remote", "push", "--prune", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(1);
+      const parsed = JSON.parse(result.stdout) as { error: string };
+      expect(parsed.error).toContain("mass-deletion guard");
+      expect(parsed.error).toContain("- .reffy/artifacts/a.md");
+      expect(parsed.error).toContain("--prune --force");
+      expect(mutating(paseo.seen)).toEqual([]);
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("prunes when forced past the guard and reports deleted paths", async () => {
+    const remote: string[] = [];
+    const paseo = await startFakeBackend(remote);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, 1);
+      remote.push(...repo.localPaths, ".reffy/artifacts/a.md");
+      const result = await runCli(["remote", "push", "--prune", "--force", "--repo", repo.repoRoot, "--output", "text"]);
+      expect(result.code).toBe(0);
+      expect(importRequest(paseo.seen)?.body?.replace_missing).toBe(true);
+      expect(result.stdout).toContain("overridden with --force");
+      expect(result.stdout).toContain("Deleted:\n- .reffy/artifacts/a.md");
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("prunes without --force when deletions stay under the threshold", async () => {
+    const remote: string[] = [];
+    const paseo = await startFakeBackend(remote);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, 25);
+      remote.push(...repo.localPaths, ".reffy/artifacts/stale.md");
+      const result = await runCli(["remote", "push", "--prune", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(0);
+      const parsed = JSON.parse(result.stdout) as { mass_deletion_guard: string; deleted: number; plan: { deleted: string[] } };
+      expect(parsed.mass_deletion_guard).toBe("pass");
+      expect(parsed.deleted).toBe(1);
+      expect(parsed.plan.deleted).toEqual([".reffy/artifacts/stale.md"]);
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("rejects --force without --prune before any network request", async () => {
+    const paseo = await startFakeBackend([]);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, 1);
+      const result = await runCli(["remote", "push", "--force", "--repo", repo.repoRoot, "--output", "json"]);
+      expect(result.code).toBe(1);
+      expect((JSON.parse(result.stdout) as { error: string }).error).toContain("--force only applies to pruning pushes");
+      expect(paseo.seen).toEqual([]);
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it("rejects push-only flags on other remote subcommands", async () => {
+    const paseo = await startFakeBackend([]);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, 1);
+      const result = await runCli([
+        "remote", "workspace", "delete", "ws-test", "--yes", "--dry-run", "--repo", repo.repoRoot, "--output", "json",
+      ]);
+      expect(result.code).toBe(1);
+      expect((JSON.parse(result.stdout) as { error: string }).error).toContain("only applies to `reffy remote push`");
+      expect(paseo.seen).toEqual([]);
+    } finally {
+      await paseo.close();
+    }
+  });
+});
