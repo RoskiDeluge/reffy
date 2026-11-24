@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   assertWorkspaceSummaryIdentity,
   collectWorkspaceDocuments,
+  computePushPlan,
+  exceedsMassDeletionGuard,
   ensureManagerInit,
   ensureWorkspaceTarget,
   extractWorkspaceSummaryIdentity,
@@ -46,6 +48,42 @@ describe("remote runtime", () => {
     expect(paths).toContain(".reffy/AGENTS.md");
     expect(paths).toContain(".reffy/artifacts/idea.md");
     expect(paths).not.toContain(".reffy/state/remote.json");
+  });
+
+  it("classifies a push plan into added, updated, unchanged, and remote-only paths", () => {
+    const doc = (p: string, content: string) => ({ path: p, content, content_type: "text/markdown" });
+    const plan = computePushPlan(
+      [doc(".reffy/b.md", "same"), doc(".reffy/a.md", "new"), doc(".reffy/c.md", "changed")],
+      [
+        { path: ".reffy/b.md", content: "same" },
+        { path: ".reffy/c.md", content: "original" },
+        { path: ".reffy/z.md", content: "only remote" },
+        { path: ".reffy/y.md", content: "only remote" },
+      ],
+    );
+    expect(plan).toEqual({
+      added: [".reffy/a.md"],
+      updated: [".reffy/c.md"],
+      unchanged: [".reffy/b.md"],
+      remote_only: [".reffy/y.md", ".reffy/z.md"],
+      remote_document_count: 4,
+    });
+  });
+
+  it("treats a remote document without content as updated", () => {
+    const plan = computePushPlan([{ path: ".reffy/a.md", content: "x", content_type: "text/markdown" }], [
+      { path: ".reffy/a.md" },
+    ]);
+    expect(plan.updated).toEqual([".reffy/a.md"]);
+    expect(plan.unchanged).toEqual([]);
+  });
+
+  it("trips the mass-deletion guard only above the threshold share of remote documents", () => {
+    const base = { added: [], updated: [], unchanged: [] };
+    const remoteOnly = (n: number) => Array.from({ length: n }, (_, i) => `.reffy/${String(i)}.md`);
+    expect(exceedsMassDeletionGuard({ ...base, remote_only: remoteOnly(5), remote_document_count: 100 })).toBe(false);
+    expect(exceedsMassDeletionGuard({ ...base, remote_only: remoteOnly(6), remote_document_count: 100 })).toBe(true);
+    expect(exceedsMassDeletionGuard({ ...base, remote_only: [], remote_document_count: 0 })).toBe(false);
   });
 
   it("validates import responses contain all required counts", () => {

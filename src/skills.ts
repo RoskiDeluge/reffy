@@ -287,7 +287,7 @@ const COMMAND_FLAGS: Record<string, readonly string[]> = {
   "reffy skill export": ["--target"],
   "reffy remote init": ["--workspace-id", "--endpoint", "--manager-pod", "--manager-actor", "--provision", "--create", "--resolve", "--label", "--env-file"],
   "reffy remote status": ["--workspace-id", "--project-id", "--env-file"],
-  "reffy remote push": ["--workspace-id", "--env-file"],
+  "reffy remote push": ["--workspace-id", "--env-file", "--dry-run", "--prune", "--force"],
   "reffy remote ls": ["--workspace-id", "--project-id", "--prefix", "--env-file"],
   "reffy remote cat": ["--workspace-id", "--project-id", "--env-file"],
   "reffy remote snapshot": ["--workspace-id", "--project-id", "--env-file"],
@@ -492,12 +492,17 @@ precedence over \`.env\`.
 1. Ensure both values are available via the shell or \`.env\`; the CLI fails fast and names a missing one.
 2. First time: \`reffy remote init --provision\` to create the workspace and mint a token. Save the token immediately.
 3. \`reffy remote status\` to confirm linkage and identity.
-4. \`reffy remote push\` to import the full local \`.reffy/\` tree.
+4. \`reffy remote push --dry-run\` to preview adds, updates, and remote-only paths; then \`reffy remote push\` to import the full local \`.reffy/\` tree. Remote documents missing locally are kept and listed by default.
 5. \`reffy remote snapshot\` / \`ls\` / \`cat\` to inspect the remote projection.
 6. \`reffy remote application get\` / \`set [--name] [--description] [--owner]\` to inspect or describe the manager's Paseo application.
 
+## Deleting remote documents
+- Only \`reffy remote push --prune\` deletes remote documents missing locally. Use it from a checkout that holds every plan meant to stay published; a branch missing another branch's plans would delete them.
+- A pruning push that would delete more than 5% of the project's remote documents is refused before changing anything. Review the listed paths; pass \`--prune --force\` only when the deletions are intended.
+
 ## Failure modes
-- A missing token makes the stored identifiers in \`.reffy/state/remote.json\` inert — set \`PASEO_TOKEN\`.`,
+- A missing token makes the stored identifiers in \`.reffy/state/remote.json\` inert — set \`PASEO_TOKEN\`.
+- Remote-only paths listed after a push usually live on another git branch. Merge or push from that branch rather than pruning.`,
   },
   {
     name: "diagnose",

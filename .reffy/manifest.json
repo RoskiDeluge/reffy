@@ -645,7 +645,7 @@
         ".reffy/reffyspec/changes/add-safe-remote-push/proposal.md",
         ".reffy/reffyspec/changes/add-safe-remote-push/tasks.md",
         ".reffy/reffyspec/changes/add-safe-remote-push/design.md",
-        ".reffy/reffyspec/changes/add-safe-remote-push/specs/safe-remote-push/spec.md"
+        ".reffy/reffyspec/changes/add-safe-remote-push/specs/remote-sync-snapshot-publication/spec.md"
       ]
     }
   ]

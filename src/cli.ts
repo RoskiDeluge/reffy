@@ -15,6 +15,9 @@ import { listPlanningChanges, showPlanningChange, validatePlanningChange } from 
 import {
   assertWorkspaceSummaryIdentity,
   collectWorkspaceDocuments,
+  computePushPlan,
+  exceedsMassDeletionGuard,
+  MASS_DELETION_THRESHOLD,
   defaultApplicationDescriptor,
   describeRemoteLinkage,
   ensureManagerInit,
@@ -457,6 +460,9 @@ interface RemoteCliArgs {
   applicationDescription?: string;
   owner?: string;
   yes: boolean;
+  dryRun: boolean;
+  prune: boolean;
+  force: boolean;
 }
 
 function getPlanPositionalArgs(argv: string[]): string[] {
@@ -668,7 +674,7 @@ function remoteUsage(): string {
     "Usage:",
     "  reffy remote init [--repo PATH] [--output text|json] [--workspace-id ID] [--endpoint URL] [--manager-pod NAME] [--manager-actor ID] [--provision] [--create|--resolve] [--label TEXT] [--name TEXT] [--description TEXT] [--owner TEXT] [--env-file PATH]",
     "  reffy remote status [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
-    "  reffy remote push [--repo PATH] [--output text|json] [--workspace-id ID] [--env-file PATH]",
+    "  reffy remote push [--dry-run] [--prune [--force]] [--repo PATH] [--output text|json] [--workspace-id ID] [--env-file PATH]",
     "  reffy remote ls [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--prefix PATH] [--env-file PATH]",
     "  reffy remote cat <path> [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
     "  reffy remote snapshot [--repo PATH] [--output text|json] [--workspace-id ID] [--project-id ID] [--env-file PATH]",
@@ -694,6 +700,9 @@ function remoteUsage(): string {
     "  --description TEXT Application description. On `init --provision`, defaults to --label or \"Reffy workspace backend for <workspace-id>\".",
     "  --owner TEXT      Application owner. On `init --provision`, defaults to PASEO_APPLICATION_OWNER, then `git config user.email`.",
     "  --yes             Confirm a destructive operation (required for `workspace delete`).",
+    "  --dry-run         Print the `remote push` plan (adds, updates, deletes by path) and change nothing.",
+    "  --prune           During `remote push`, delete remote documents missing locally. Without it, they are kept and listed.",
+    `  --force           With \`push --prune\`, override the guard that refuses to delete more than ${String(MASS_DELETION_THRESHOLD * 100)}% of the project's remote documents.`,
     "  --prefix PATH     Prefix filter for `remote ls`.",
     "  --env-file PATH   Dotenv file to load before resolving env-backed options. Defaults to .env.",
   ].join("\n");
@@ -889,7 +898,18 @@ const REMOTE_VALUE_FLAGS = new Set([
   "--owner",
 ]);
 
-const REMOTE_BOOLEAN_FLAGS = new Set(["--json", "--provision", "--create", "--resolve", "--yes"]);
+const REMOTE_BOOLEAN_FLAGS = new Set([
+  "--json",
+  "--provision",
+  "--create",
+  "--resolve",
+  "--yes",
+  "--dry-run",
+  "--prune",
+  "--force",
+]);
+
+const PUSH_ONLY_FLAGS = ["--dry-run", "--prune", "--force"] as const;
 
 function parseRemoteArgs(argv: string[]): RemoteCliArgs {
   const repoRoot = parseRepoArg(argv);
@@ -899,6 +919,9 @@ function parseRemoteArgs(argv: string[]): RemoteCliArgs {
     create: false,
     resolve: false,
     yes: false,
+    dryRun: false,
+    prune: false,
+    force: false,
   };
 
   const setStr = (flag: string, value: string | undefined): string => {
@@ -938,6 +961,9 @@ function parseRemoteArgs(argv: string[]): RemoteCliArgs {
     if (arg === "--create") { args.create = true; continue; }
     if (arg === "--resolve") { args.resolve = true; continue; }
     if (arg === "--yes") { args.yes = true; continue; }
+    if (arg === "--dry-run") { args.dryRun = true; continue; }
+    if (arg === "--prune") { args.prune = true; continue; }
+    if (arg === "--force") { args.force = true; continue; }
 
     if (arg.startsWith("--")) {
       throw new Error(`Unknown remote option: ${arg}`);
@@ -1488,6 +1514,16 @@ async function main(): Promise<number> {
     };
 
     try {
+      if (subcommand !== "push") {
+        const pushOnly = PUSH_ONLY_FLAGS.filter((flag) => remoteArgs.includes(flag));
+        if (pushOnly.length > 0) {
+          throw new Error(`${pushOnly.join(", ")} only applies to \`reffy remote push\``);
+        }
+      } else if (parsed.force && !parsed.prune) {
+        throw new Error(
+          "--force only applies to pruning pushes: it overrides the mass-deletion guard. Pass --prune --force to delete remote documents missing locally.",
+        );
+      }
       if (subcommand === "workspace") {
         return await handleRemoteWorkspaceSubcommand(parsed, remoteArgs, output, reportError);
       }
@@ -1706,12 +1742,97 @@ async function main(): Promise<number> {
 
       if (subcommand === "push") {
         const documents = await collectWorkspaceDocuments(parsed.repoRoot);
+        let remoteListing;
+        try {
+          remoteListing = await backendClient.listProjectDocuments(context.projectId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`Remote push could not read the remote project listing using ${linkageLabel}: ${message}`, {
+            cause: error,
+          });
+        }
+        const plan = computePushPlan(documents, remoteListing.documents);
+        const mode = parsed.prune ? "prune" : "keep_missing";
+        const exceedsGuard = parsed.prune && exceedsMassDeletionGuard(plan);
+        const guard = !parsed.prune
+          ? "not_applicable"
+          : !exceedsGuard
+            ? "pass"
+            : parsed.force
+              ? "overridden"
+              : "refused";
+        const thresholdLabel = `${String(MASS_DELETION_THRESHOLD * 100)}%`;
+        const planPayload = {
+          added: plan.added,
+          updated: plan.updated,
+          unchanged_count: plan.unchanged.length,
+          [parsed.prune ? "deleted" : "kept_remote_only"]: plan.remote_only,
+          remote_project_document_count: plan.remote_document_count,
+        };
+
+        const printPlan = (): void => {
+          console.log(
+            `Plan: add ${String(plan.added.length)}, update ${String(plan.updated.length)}, unchanged ${String(plan.unchanged.length)}, ${parsed.prune ? "delete" : "keep remote-only"} ${String(plan.remote_only.length)}`,
+          );
+          if (plan.added.length > 0) printSection("Add", plan.added);
+          if (plan.updated.length > 0) printSection("Update", plan.updated);
+          if (plan.remote_only.length > 0) {
+            if (parsed.prune) {
+              printSection(parsed.dryRun ? "Would delete" : "Deleted", plan.remote_only);
+            } else {
+              printSection("Kept on remote, not in this checkout", plan.remote_only);
+              console.log("Pass --prune to delete these from the remote.");
+            }
+          }
+        };
+
+        if (parsed.dryRun) {
+          const payload = {
+            status: "ok",
+            command: "remote",
+            subcommand: "push",
+            dry_run: true,
+            mode,
+            mass_deletion_guard: guard,
+            workspace_id: context.workspaceId,
+            project_id: context.projectId,
+            local_document_count: documents.length,
+            plan: planPayload,
+          };
+          if (output === "json") {
+            printResult(output, payload);
+          } else {
+            console.log("Remote push dry run (no changes made)");
+            console.log(`Workspace id: ${payload.workspace_id}`);
+            console.log(`Project id: ${payload.project_id}`);
+            console.log(`Mode: ${mode}`);
+            printPlan();
+            if (guard === "refused") {
+              console.log(
+                `A real push would be refused: it deletes more than ${thresholdLabel} of the project's remote documents. Add --force to override.`,
+              );
+            }
+          }
+          return 0;
+        }
+
+        if (guard === "refused") {
+          throw new Error(
+            [
+              `Refusing to prune ${String(plan.remote_only.length)} of ${String(plan.remote_document_count)} remote documents for project "${context.projectId}" in workspace "${context.workspaceId}": that exceeds the ${thresholdLabel} mass-deletion guard. Nothing was changed.`,
+              "This often means the checkout is missing work from another branch. Paths that would have been deleted:",
+              ...plan.remote_only.map((remotePath) => `- ${remotePath}`),
+              "Re-run with --prune --force if these deletions are intended.",
+            ].join("\n"),
+          );
+        }
+
         const registration = await managerClient.registerProject(context.workspaceId, context.projectId);
 
         let importResult;
         try {
           importResult = validateImportResult(
-            await backendClient.importProject(context.projectId, documents, true),
+            await backendClient.importProject(context.projectId, documents, parsed.prune),
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -1734,6 +1855,9 @@ async function main(): Promise<number> {
           status: "ok",
           command: "remote",
           subcommand: "push",
+          dry_run: false,
+          mode,
+          mass_deletion_guard: guard,
           endpoint: resolvedTarget.endpoint,
           workspace_id: context.workspaceId,
           project_id: context.projectId,
@@ -1746,7 +1870,8 @@ async function main(): Promise<number> {
           created: importResult.created,
           updated: importResult.updated,
           deleted: importResult.deleted,
-          replace_missing: true,
+          replace_missing: parsed.prune,
+          plan: planPayload,
           last_imported_at: importedAt,
           remote_document_count: summary.document_count,
         };
@@ -1761,7 +1886,15 @@ async function main(): Promise<number> {
           console.log(`Project registration: ${payload.project_registration}`);
           console.log(`Workspace backend: ${payload.workspace_backend.pod_name}/${payload.workspace_backend.actor_id}`);
           if (recovered) console.log("Recovered workspace backend identity through the manager");
-          console.log("Mode: remote reflects local (replace_missing=true)");
+          console.log(
+            parsed.prune
+              ? "Mode: prune (remote documents missing locally are deleted)"
+              : "Mode: keep_missing (remote documents missing locally are kept)",
+          );
+          if (guard === "overridden") {
+            console.log(`Mass-deletion guard (${thresholdLabel}) overridden with --force`);
+          }
+          printPlan();
           console.log(`Local document count: ${String(payload.local_document_count)}`);
           console.log(`Imported: ${String(payload.imported)}`);
           console.log(`Created: ${String(payload.created)}`);
