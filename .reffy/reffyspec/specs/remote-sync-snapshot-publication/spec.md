@@ -12,6 +12,7 @@ The CLI SHALL expose a step-1 `reffy remote` command group for linking, publishi
 - **WHEN** a user requests CLI help for Reffy remote functionality
 - **THEN** the CLI documents `remote init`, `remote status`, `remote push`, `remote ls`, and `remote cat <path>`
 - **AND** the help text presents the feature as a narrow local-to-remote publication workflow rather than bidirectional sync
+
 ### Requirement: Manifest-Backed Workspace Identity
 Identity-aware remote workflows SHALL read local source identity and workspace membership from `.reffy/manifest.json`.
 
@@ -34,6 +35,7 @@ Identity-aware remote workflows SHALL read local source identity and workspace m
 - **AND** the command does not specify which workspace id to use
 - **THEN** the command fails clearly
 - **AND** the output lists the available workspace ids and explains how to select the target projection
+
 ### Requirement: Separate Remote Linkage State
 The system SHALL store remote connection metadata separately from `.reffy/manifest.json` and support multiple linkage targets for one source tree.
 
@@ -53,6 +55,7 @@ The system SHALL store remote connection metadata separately from `.reffy/manife
 - **WHEN** a user runs `reffy remote status`, `reffy remote push`, `reffy remote ls`, or `reffy remote cat <path>` for a workspace id without configured linkage
 - **THEN** the command fails clearly
 - **AND** the output tells the user to initialize or repair the remote linkage configuration for that workspace id
+
 ### Requirement: Paseo Provisioning Path
 The first implementation SHALL keep the fresh-provision connection model minimal and explicit while provisioning against a selected workspace projection.
 
@@ -73,16 +76,30 @@ The first implementation SHALL keep the fresh-provision connection model minimal
 - **THEN** the command fails clearly
 - **AND** the output tells the user to reinitialize the remote target against the `reffyRemoteBackend.v2` contract and repush the local `.reffy/` tree
 - **AND** the command does not silently treat a legacy `workspace_name` value as the canonical workspace projection id
-### Requirement: Snapshot Publication Semantics
-`reffy remote push` SHALL behave as an explicit "selected remote projection reflects local" operation.
 
-#### Scenario: Push reports import and prune results
+### Requirement: Snapshot Publication Semantics
+`reffy remote push` SHALL publish the full local `.reffy/` tree to the selected remote projection, SHALL keep remote documents that are missing locally unless the user explicitly requests pruning, and SHALL report what changed by path.
+
+#### Scenario: Push reports import results
 - **WHEN** a user runs `reffy remote push` with valid manifest identity and remote linkage for a selected workspace id
 - **THEN** the CLI scans the full local `.reffy/` tree
 - **AND** the CLI publishes the full document set to the selected Paseo workspace import target
 - **AND** the payload distinguishes the local source identity from the selected workspace projection identity
 - **AND** the command reports import counts such as created, updated, deleted, and imported when available
-- **AND** the output makes the default replace/prune behavior auditable by a human operator
+- **AND** the output states whether the push ran in keep-missing or prune mode
+
+#### Scenario: Default push keeps remote-only documents
+- **WHEN** a user runs `reffy remote push` without `--prune`
+- **AND** the remote project holds documents whose paths are not in the local `.reffy/` tree
+- **THEN** the CLI imports with `replace_missing` disabled
+- **AND** those remote documents remain on the remote
+- **AND** the output lists each kept remote-only path and explains that `--prune` would delete them
+
+#### Scenario: Pruning push deletes remote-only documents
+- **WHEN** a user runs `reffy remote push --prune`
+- **AND** the push passes the mass-deletion guard
+- **THEN** the CLI imports with `replace_missing` enabled
+- **AND** the output lists each deleted path
 
 #### Scenario: Newly introduced Reffy directories are published
 - **WHEN** multi-workspace membership introduces or relies on new `.reffy/` directories or planning documents
@@ -95,6 +112,7 @@ The first implementation SHALL keep the fresh-provision connection model minimal
 - **THEN** the command fails
 - **AND** the CLI does not report the push as a successful synchronization
 - **AND** the failure message identifies the missing response detail
+
 ### Requirement: Canonical Remote Paths
 Remote document paths SHALL use canonical workspace paths rooted at `.reffy/`.
 
@@ -107,6 +125,7 @@ Remote document paths SHALL use canonical workspace paths rooted at `.reffy/`.
 - **WHEN** a user runs `reffy remote cat <path>`
 - **THEN** the CLI resolves the request against the normalized logical path namespace
 - **AND** the command fails clearly if the requested path is invalid or not found remotely
+
 ### Requirement: Remote Inspection and Verification
 The system SHALL provide inspection-oriented commands that help users verify local and remote alignment for a selected workspace projection clearly enough for operational use.
 
@@ -129,6 +148,7 @@ The system SHALL provide inspection-oriented commands that help users verify loc
 - **WHEN** the linked remote workspace identity does not match the selected local workspace id or source identity expected by the local manifest
 - **THEN** `reffy remote status` or `reffy remote push` fails clearly
 - **AND** the output identifies the local source identity, selected workspace id, and remote identities instead of silently proceeding
+
 ### Requirement: Helper Script Integration
 The first implementation SHALL include a supported helper path for validating the Paseo deployment and workspace contract.
 
@@ -147,6 +167,7 @@ The first implementation SHALL include a supported helper path for validating th
 - **WHEN** a user runs the supported helper script locally
 - **THEN** the helper accepts `PASEO_ENDPOINT` as required configuration
 - **AND** the helper accepts `PASEO_POD_NAME` and `PASEO_ACTOR_ID` as optional linkage overrides
+
 ### Requirement: Step-1 Boundary
 The first remote sync capability SHALL remain one-way and non-collaborative.
 
@@ -154,6 +175,7 @@ The first remote sync capability SHALL remain one-way and non-collaborative.
 - **WHEN** a user uses the step-1 remote command set
 - **THEN** the available behavior is limited to local linkage, snapshot publication, and remote inspection
 - **AND** the CLI does not expose pull, merge, or conflict-resolution workflows as part of the step-1 capability
+
 ### Requirement: Remote Debugging Sufficiency
 The step-1 command set SHALL be sufficient for routine remote debugging without direct backend API calls.
 
@@ -161,6 +183,7 @@ The step-1 command set SHALL be sufficient for routine remote debugging without 
 - **WHEN** a user needs to inspect what exists remotely or read one specific remote document
 - **THEN** `reffy remote ls` and `reffy remote cat <path>` provide enough visibility to inspect the linked workspace state
 - **AND** the commands fail with clear messages for invalid paths or missing documents
+
 ### Requirement: Bearer Token Authentication
 The CLI SHALL send a bearer token on every Paseo request and SHALL source the token, along with the Paseo endpoint, from environment configuration only.
 
@@ -187,6 +210,7 @@ The CLI SHALL send a bearer token on every Paseo request and SHALL source the to
 - **THEN** the endpoint is taken from `PASEO_ENDPOINT` environment configuration
 - **AND** the CLI does not read the endpoint from the persisted linkage file
 - **AND** the CLI does not write the endpoint to the persisted linkage file
+
 ### Requirement: Projection-Scoped Paseo Backend Target
 Reffy remote workflows SHALL treat each linked `reffyRemoteBackend.v2` actor as storage for one source tree published into one or more selected workspace projections, with each projection addressed through `/workspaces/{workspace_id}/...` routes and isolated by `(workspace_id, path)` keying on the backend.
 
@@ -208,3 +232,44 @@ Reffy remote workflows SHALL treat each linked `reffyRemoteBackend.v2` actor as 
 - **THEN** the Reffy remote workflow addresses each projection through the v2 `/workspaces/{workspace_id}/...` route surface
 - **AND** each projection's documents and locks remain isolated on the backend by `(workspace_id, path)` keying
 - **AND** `reffy remote push` for one workspace id does not mutate documents stored under a different workspace id on the same actor
+
+### Requirement: Push Plan Preview
+`reffy remote push` SHALL compute a push plan before importing, classifying each path as add, update, unchanged, or delete relative to the selected remote project, and SHALL support a dry run that prints the plan without mutating remote or local state.
+
+#### Scenario: Push computes a plan before importing
+- **WHEN** a user runs `reffy remote push`
+- **THEN** the CLI reads the remote project's document listing before importing
+- **AND** the output includes add, update, unchanged, and delete counts
+- **AND** text output lists added and to-be-deleted paths
+
+#### Scenario: Dry run makes no changes
+- **WHEN** a user runs `reffy remote push --dry-run`, with or without `--prune`
+- **THEN** the CLI prints the push plan for the requested mode
+- **AND** the CLI does not register the project, import documents, or delete documents
+- **AND** the CLI does not update `last_imported_at` in local linkage state
+- **AND** the output states that it was a dry run
+
+#### Scenario: Dry run output is machine-readable
+- **WHEN** a user runs `reffy remote push --dry-run --output json`
+- **THEN** the JSON payload includes the mode, a `dry_run: true` marker, and arrays of added, updated, and deleted paths
+
+### Requirement: Mass-Deletion Guard
+`reffy remote push --prune` SHALL refuse to run when it would delete more than 5% of the selected project's remote documents, unless the user also passes `--force`.
+
+#### Scenario: Pruning push exceeds the deletion threshold
+- **WHEN** a user runs `reffy remote push --prune` without `--force`
+- **AND** the push plan would delete more than 5% of the project's remote documents
+- **THEN** the command fails before registering the project or importing any document
+- **AND** the output lists the paths that would have been deleted
+- **AND** the output explains that `--force` overrides the guard
+
+#### Scenario: Forced pruning push exceeds the threshold
+- **WHEN** a user runs `reffy remote push --prune --force`
+- **AND** the push plan would delete more than 5% of the project's remote documents
+- **THEN** the push proceeds with pruning
+- **AND** the output lists each deleted path
+
+#### Scenario: Force is passed without prune
+- **WHEN** a user runs `reffy remote push --force` without `--prune`
+- **THEN** the command fails before any network request
+- **AND** the output explains that `--force` only applies to pruning pushes
