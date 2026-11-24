@@ -6,6 +6,8 @@ Earlier releases are available in the [GitHub release history](https://github.co
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-11-24
+
 ### Changed
 - The `archive-change` skill now covers republishing after an archive: preview with `reffy remote push --dry-run --prune`, and prune only when every path to be deleted belongs to the archived change's old location. Run `reffy init` to refresh the skill.
 
