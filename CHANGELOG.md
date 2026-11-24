@@ -6,6 +6,8 @@ Earlier releases are available in the [GitHub release history](https://github.co
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-24
+
 ### Changed
 - **Breaking:** `reffy remote push` no longer deletes remote documents that are missing from the local `.reffy/` tree. It keeps them and lists them as "Kept on remote, not in this checkout", so a push from a branch that lacks another branch's plans no longer removes those plans. Push output now includes a plan (add, update, unchanged, and remote-only paths).
 
