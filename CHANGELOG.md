@@ -6,6 +6,8 @@ Earlier releases are available in the [GitHub release history](https://github.co
 
 ## [Unreleased]
 
+## [1.12.2] - 2026-11-25
+
 ### Fixed
 - `reffy remote push --prune` excludes verified archive moves from the 5% deletion guard and still lists every planned deletion. Run `reffy init` to refresh the archive skill's fallback guidance when the guard refuses cleanup.
 
