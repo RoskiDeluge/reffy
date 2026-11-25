@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { DEFAULT_PLANNING_RELATIVE_DIR } from "./planning-paths.js";
 import { resolveRefsDir } from "./refs-paths.js";
 import type {
   RemoteActorIdentity,
@@ -965,6 +966,8 @@ export async function collectWorkspaceDocuments(repoRoot: string): Promise<Remot
 }
 
 export const MASS_DELETION_THRESHOLD = 0.05;
+const CHANGES_PREFIX = `${DEFAULT_PLANNING_RELATIVE_DIR}/changes/`;
+const ARCHIVE_PREFIX = `${CHANGES_PREFIX}archive/`;
 
 export interface PushPlan {
   added: string[];
@@ -972,7 +975,21 @@ export interface PushPlan {
   unchanged: string[];
   /** Remote paths missing locally: deleted by a pruning push, kept otherwise. */
   remote_only: string[];
+  verified_archive_moves: string[];
   remote_document_count: number;
+}
+
+/** Map a canonical dated archive file back to its active change path. */
+function activePathForArchive(archivePath: string): string | undefined {
+  if (!archivePath.startsWith(ARCHIVE_PREFIX)) return undefined;
+  const match = /^(\d{4}-\d{2}-\d{2})-([^/]+)\/(.+)$/s.exec(archivePath.slice(ARCHIVE_PREFIX.length));
+  if (!match) return undefined;
+
+  const [, date, changeId, relativePath] = match;
+  if (changeId === "archive") return undefined;
+  const archiveDate = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(archiveDate.getTime()) || archiveDate.toISOString().slice(0, 10) !== date) return undefined;
+  return `${CHANGES_PREFIX}${changeId}/${relativePath}`;
 }
 
 /**
@@ -994,11 +1011,17 @@ export function computePushPlan(
     updated: [],
     unchanged: [],
     remote_only: [],
+    verified_archive_moves: [],
     remote_document_count: remoteByPath.size,
   };
   const localPaths = new Set<string>();
+  const matchingArchiveSources = new Set<string>();
   for (const document of local) {
     localPaths.add(document.path);
+    const activePath = activePathForArchive(document.path);
+    if (activePath !== undefined && remoteByPath.get(activePath) === document.content) {
+      matchingArchiveSources.add(activePath);
+    }
     if (!remoteByPath.has(document.path)) {
       plan.added.push(document.path);
     } else if (remoteByPath.get(document.path) === document.content) {
@@ -1015,11 +1038,16 @@ export function computePushPlan(
   plan.updated.sort();
   plan.unchanged.sort();
   plan.remote_only.sort();
+  plan.verified_archive_moves = plan.remote_only.filter((remotePath) => matchingArchiveSources.has(remotePath));
   return plan;
+}
+
+export function countGuardedDeletions(plan: PushPlan): number {
+  return plan.remote_only.length - plan.verified_archive_moves.length;
 }
 
 /** True when pruning would delete more than the allowed share of the project's remote documents. */
 export function exceedsMassDeletionGuard(plan: PushPlan, threshold = MASS_DELETION_THRESHOLD): boolean {
   if (plan.remote_document_count === 0) return false;
-  return plan.remote_only.length / plan.remote_document_count > threshold;
+  return countGuardedDeletions(plan) / plan.remote_document_count > threshold;
 }

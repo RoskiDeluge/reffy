@@ -78,6 +78,15 @@ describe("scaffoldManagedSkills", () => {
     expect(await readFile(managedPath, "utf8")).not.toBe("tampered");
     expect(await readFile(path.join(repo.repoRoot, ".reffy", "skills", "my-skill", "SKILL.md"), "utf8")).toContain("body");
   });
+
+  it("publishes without pruning when the archive cleanup guard refuses", async () => {
+    const repo = await createTempRepo();
+    await scaffoldManagedSkills(repo.repoRoot);
+    const skill = await readFile(path.join(repo.refsDir, "skills", "archive-change", "SKILL.md"), "utf8");
+    expect(skill).toContain("and the guard reports `pass`");
+    expect(skill).toMatch(/the guard refuses the previewed cleanup, or the real prune is refused by the guard, publish with `reffy remote push` without `--prune`/);
+    expect(skill).toContain("Never use `--force` for routine archive cleanup.");
+  });
 });
 
 describe("validateSkills", () => {

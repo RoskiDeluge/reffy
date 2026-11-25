@@ -16,6 +16,7 @@ import {
   assertWorkspaceSummaryIdentity,
   collectWorkspaceDocuments,
   computePushPlan,
+  countGuardedDeletions,
   exceedsMassDeletionGuard,
   MASS_DELETION_THRESHOLD,
   defaultApplicationDescriptor,
@@ -702,7 +703,7 @@ function remoteUsage(): string {
     "  --yes             Confirm a destructive operation (required for `workspace delete`).",
     "  --dry-run         Print the `remote push` plan (adds, updates, deletes by path) and change nothing.",
     "  --prune           During `remote push`, delete remote documents missing locally. Without it, they are kept and listed.",
-    `  --force           With \`push --prune\`, override the guard that refuses to delete more than ${String(MASS_DELETION_THRESHOLD * 100)}% of the project's remote documents.`,
+    `  --force           With \`push --prune\`, override the ${String(MASS_DELETION_THRESHOLD * 100)}% project deletion guard. Verified archive moves are exempt from the guard.`,
     "  --prefix PATH     Prefix filter for `remote ls`.",
     "  --env-file PATH   Dotenv file to load before resolving env-backed options. Defaults to .env.",
   ].join("\n");
@@ -1407,7 +1408,7 @@ async function ensureResolvedTarget(
     resolvedTarget: ResolvedRemoteTarget | null;
     configPath: string;
   },
-  runtime: { endpoint: string; token: string },
+  runtime: { endpoint: string; token: string; deferPersistence: boolean },
 ): Promise<{ target: ResolvedRemoteTarget; recovered: boolean }> {
   if (context.resolvedTarget) {
     return { target: context.resolvedTarget, recovered: false };
@@ -1419,18 +1420,16 @@ async function ensureResolvedTarget(
   }
   // Manager identity is configured but workspace_backend identity is missing for this workspace.
   // Recover by resolving through the manager.
-  const result = await ensureWorkspaceTarget(args.repoRoot, context.savedConfig, {
-    workspaceId: context.workspaceId,
-    mode: "resolve",
-    endpoint: runtime.endpoint,
-    token: runtime.token,
-  });
+  const manager = new PaseoManagerClient(runtime.endpoint, context.savedConfig.manager, runtime.token);
+  const backend = await manager.getWorkspace(context.workspaceId);
+  if (!runtime.deferPersistence) {
+    await upsertWorkspaceTarget(args.repoRoot, context.savedConfig, context.workspaceId, backend);
+  }
   return {
     target: {
       endpoint: runtime.endpoint,
-      manager: result.config.manager,
-      workspace_backend: result.workspace_backend,
-      last_imported_at: result.config.targets[context.workspaceId]?.last_imported_at,
+      manager: context.savedConfig.manager,
+      workspace_backend: backend,
     },
     recovered: true,
   };
@@ -1671,6 +1670,7 @@ async function main(): Promise<number> {
       const { target: resolvedTarget, recovered } = await ensureResolvedTarget(parsed, context, {
         endpoint,
         token,
+        deferPersistence: subcommand === "push",
       });
       const backendClient = new PaseoWorkspaceBackendClient(
         resolvedTarget.endpoint,
@@ -1762,12 +1762,18 @@ async function main(): Promise<number> {
               ? "overridden"
               : "refused";
         const thresholdLabel = `${String(MASS_DELETION_THRESHOLD * 100)}%`;
+        const guardedDeletions = countGuardedDeletions(plan);
+        const guardSummary = `Deletions counted by the guard: ${String(guardedDeletions)} of ${String(plan.remote_document_count)} remote project documents`;
         const planPayload = {
           added: plan.added,
           updated: plan.updated,
           unchanged_count: plan.unchanged.length,
           [parsed.prune ? "deleted" : "kept_remote_only"]: plan.remote_only,
           remote_project_document_count: plan.remote_document_count,
+          ...(parsed.prune ? {
+            verified_archive_moves: plan.verified_archive_moves,
+            guard_deletion_count: guardedDeletions,
+          } : {}),
         };
 
         const printPlan = (): void => {
@@ -1783,6 +1789,10 @@ async function main(): Promise<number> {
               printSection("Kept on remote, not in this checkout", plan.remote_only);
               console.log("Pass --prune to delete these from the remote.");
             }
+          }
+          if (parsed.prune) {
+            if (plan.verified_archive_moves.length > 0) printSection("Verified archive moves", plan.verified_archive_moves);
+            console.log(guardSummary);
           }
         };
 
@@ -1807,9 +1817,10 @@ async function main(): Promise<number> {
             console.log(`Project id: ${payload.project_id}`);
             console.log(`Mode: ${mode}`);
             printPlan();
+            if (parsed.prune) console.log(`Mass-deletion guard: ${guard}`);
             if (guard === "refused") {
               console.log(
-                `A real push would be refused: it deletes more than ${thresholdLabel} of the project's remote documents. Add --force to override.`,
+                `A real push would be refused: deletions counted by the guard exceed ${thresholdLabel}. Add --force to override.`,
               );
             }
           }
@@ -1817,16 +1828,31 @@ async function main(): Promise<number> {
         }
 
         if (guard === "refused") {
-          throw new Error(
-            [
-              `Refusing to prune ${String(plan.remote_only.length)} of ${String(plan.remote_document_count)} remote documents for project "${context.projectId}" in workspace "${context.workspaceId}": that exceeds the ${thresholdLabel} mass-deletion guard. Nothing was changed.`,
-              "This often means the checkout is missing work from another branch. Paths that would have been deleted:",
-              ...plan.remote_only.map((remotePath) => `- ${remotePath}`),
-              "Re-run with --prune --force if these deletions are intended.",
-            ].join("\n"),
-          );
+          const error = [
+            `Refusing to prune project "${context.projectId}" in workspace "${context.workspaceId}" because the ${thresholdLabel} mass-deletion guard was exceeded. Nothing was changed.`,
+            guardSummary,
+            "Paths that would have been deleted:",
+            ...plan.remote_only.map((remotePath) => `- ${remotePath}`),
+            ...(plan.verified_archive_moves.length > 0
+              ? ["Verified archive moves:", ...plan.verified_archive_moves.map((remotePath) => `- ${remotePath}`)]
+              : []),
+            "Re-run with --prune --force if these deletions are intended.",
+          ].join("\n");
+          if (output === "json") {
+            printResult(output, {
+              status: "error", command: "remote", subcommand: "push", error,
+              workspace_id: context.workspaceId, project_id: context.projectId, mode, dry_run: false,
+              mass_deletion_guard: guard, plan: planPayload,
+            });
+          } else {
+            console.error(error);
+          }
+          return 1;
         }
 
+        if (recovered && context.savedConfig) {
+          await upsertWorkspaceTarget(parsed.repoRoot, context.savedConfig, context.workspaceId, resolvedTarget.workspace_backend);
+        }
         const registration = await managerClient.registerProject(context.workspaceId, context.projectId);
 
         let importResult;

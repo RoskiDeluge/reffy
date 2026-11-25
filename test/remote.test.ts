@@ -7,6 +7,7 @@ import {
   assertWorkspaceSummaryIdentity,
   collectWorkspaceDocuments,
   computePushPlan,
+  countGuardedDeletions,
   exceedsMassDeletionGuard,
   ensureManagerInit,
   ensureWorkspaceTarget,
@@ -66,6 +67,7 @@ describe("remote runtime", () => {
       updated: [".reffy/c.md"],
       unchanged: [".reffy/b.md"],
       remote_only: [".reffy/y.md", ".reffy/z.md"],
+      verified_archive_moves: [],
       remote_document_count: 4,
     });
   });
@@ -79,11 +81,47 @@ describe("remote runtime", () => {
   });
 
   it("trips the mass-deletion guard only above the threshold share of remote documents", () => {
-    const base = { added: [], updated: [], unchanged: [] };
+    const base = { added: [], updated: [], unchanged: [], verified_archive_moves: [] };
     const remoteOnly = (n: number) => Array.from({ length: n }, (_, i) => `.reffy/${String(i)}.md`);
     expect(exceedsMassDeletionGuard({ ...base, remote_only: remoteOnly(5), remote_document_count: 100 })).toBe(false);
     expect(exceedsMassDeletionGuard({ ...base, remote_only: remoteOnly(6), remote_document_count: 100 })).toBe(true);
     expect(exceedsMassDeletionGuard({ ...base, remote_only: [], remote_document_count: 0 })).toBe(false);
+  });
+
+  it("only exempts stale active files with an exact counterpart in the outgoing archive", () => {
+    const changes = ".reffy/reffyspec/changes";
+    const active = `${changes}/add-feature`;
+    const archive = `${changes}/archive/2026-11-25-add-feature`;
+    const nested = "specs/some-capability/spec.md";
+    const plan = computePushPlan(
+      [
+        `${archive}/${nested}`,
+        `${archive}/tasks.md`,
+        `${archive}/missing-content.md`,
+        `${archive}/still-active.md`,
+        `${active}/still-active.md`,
+        `${archive}/other/design.md`,
+        `${changes}/archive/2026-11-25-retire-add-feature/proposal.md`,
+        `${changes}/archive/2026-02-30-add-feature/invalid-date.md`,
+        `${changes}/archive/2026-11-25-archive/2026-10-01-add-feature/old.md`,
+      ].map((p) => ({ path: p, content: "same", content_type: "text/markdown" })),
+      [
+        { path: `${active}/${nested}`, content: "same" },
+        { path: `${active}/tasks.md`, content: "older" },
+        { path: `${active}/missing-content.md` },
+        { path: `${active}/still-active.md`, content: "same" },
+        { path: `${active}/design.md`, content: "same" },
+        { path: `${active}/proposal.md`, content: "same" },
+        { path: `${active}/invalid-date.md`, content: "same" },
+        { path: `${active}/remote-only-copy.md`, content: "same" },
+        { path: `${archive}/remote-only-copy.md`, content: "same" },
+        { path: `${changes}/archive/2026-10-01-add-feature/old.md`, content: "same" },
+      ],
+    );
+    expect(plan.verified_archive_moves).toEqual([`${active}/${nested}`]);
+    expect(countGuardedDeletions(plan)).toBe(8);
+    expect(exceedsMassDeletionGuard({ ...plan, remote_document_count: 160 })).toBe(false);
+    expect(exceedsMassDeletionGuard({ ...plan, remote_document_count: 159 })).toBe(true);
   });
 
   it("validates import responses contain all required counts", () => {

@@ -309,7 +309,15 @@ reffy remote snapshot
 - imported / created / updated / deleted counts
 - last imported timestamp
 
-That makes the default prune/import behavior auditable without dropping to direct backend API calls.
+By default, `reffy remote push` keeps paths missing from the local checkout. Use
+`reffy remote push --dry-run --prune` to preview deletion of those paths before
+running `reffy remote push --prune`.
+
+The prune guard refuses a push when counted deletions exceed 5% of the selected
+project's remote documents. A stale active change file is exempt when the outgoing
+snapshot includes an identical copy at the matching path in a dated archive of
+the same change. The preview lists all planned deletions and the verified archive
+moves. `--prune --force` overrides a refusal.
 
 ## Manifest Contract
 

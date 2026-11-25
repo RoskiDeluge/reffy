@@ -37,7 +37,7 @@ precedence over `.env`.
 
 ## Deleting remote documents
 - Only `reffy remote push --prune` deletes remote documents missing locally. Use it from a checkout that holds every plan meant to stay published; a branch missing another branch's plans would delete them.
-- A pruning push that would delete more than 5% of the project's remote documents is refused before changing anything. Review the listed paths; pass `--prune --force` only when the deletions are intended.
+- Preview pruning with `reffy remote push --dry-run --prune`. The 5% guard counts planned deletions without a verified archive counterpart against the project's pre-push document count. The preview lists all planned deletions and marks verified archive moves. Review the full list before pruning and use `--prune --force` only when the listed deletions are intended.
 
 ## Failure modes
 - A missing token makes the stored identifiers in `.reffy/state/remote.json` inert — set `PASEO_TOKEN`.

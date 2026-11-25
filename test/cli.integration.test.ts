@@ -1861,6 +1861,7 @@ describe("remote push safety", () => {
 
   async function startFakeBackend(
     remotePaths: string[],
+    remoteContent = new Map<string, string>(),
   ): Promise<{ endpoint: string; seen: SeenRequest[]; close: () => Promise<void> }> {
     const seen: SeenRequest[] = [];
     const server = createServer((req, res) => {
@@ -1875,7 +1876,7 @@ describe("remote push safety", () => {
           res.end(JSON.stringify(payload));
         };
         if (req.method === "GET" && /\/projects\/[^/]+\/documents$/.test(url.pathname)) {
-          return send(200, { documents: remotePaths.map((p) => ({ path: p, content: `remote ${p}` })) });
+          return send(200, { documents: remotePaths.map((p) => ({ path: p, content: remoteContent.get(p) ?? `remote ${p}` })) });
         }
         if (req.method === "POST" && /\/projects\/[^/]+\/import$/.test(url.pathname)) {
           const documents = (body?.documents ?? []) as Array<{ path: string }>;
@@ -1884,6 +1885,9 @@ describe("remote push safety", () => {
           return send(200, { imported: documents.length, created: 0, updated: documents.length, deleted });
         }
         if (req.method === "POST" && url.pathname.startsWith(`${MANAGER}/workspaces/`)) return send(200, { ok: true });
+        if (req.method === "GET" && url.pathname === `${MANAGER}/workspaces/ws-test`) {
+          return send(200, { workspace: { workspace_id: "ws-test", backend: { pod_name: "pod-ws", actor_id: "actor-ws" } } });
+        }
         if (req.method === "GET" && url.pathname === BACKEND) {
           return send(200, {
             source: { actor_type: "reffyRemoteBackend", version: "v2" },
@@ -1958,7 +1962,11 @@ describe("remote push safety", () => {
     try {
       const repo = await setupLinkedRepo(paseo.endpoint, 2);
       remote.push(repo.localPaths[0], ".reffy/artifacts/gone.md");
-      const configBefore = await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8");
+      const configPath = path.join(repo.refsDir, "state", "remote.json");
+      const config = JSON.parse(await readFile(configPath, "utf8")) as { targets: Record<string, unknown> };
+      config.targets = {};
+      const configBefore = JSON.stringify(config);
+      await writeFile(configPath, configBefore);
       const result = await runCli(["remote", "push", "--dry-run", "--prune", "--repo", repo.repoRoot, "--output", "json"]);
       expect(result.code).toBe(0);
       const parsed = JSON.parse(result.stdout) as {
@@ -1974,7 +1982,52 @@ describe("remote push safety", () => {
       expect(parsed.plan.updated).toEqual([repo.localPaths[0]]);
       expect(parsed.plan.deleted).toEqual([".reffy/artifacts/gone.md"]);
       expect(mutating(paseo.seen)).toEqual([]);
-      expect(await readFile(path.join(repo.refsDir, "state", "remote.json"), "utf8")).toBe(configBefore);
+      expect(await readFile(configPath, "utf8")).toBe(configBefore);
+    } finally {
+      await paseo.close();
+    }
+  });
+
+  it.each([false, true])("prunes seven verified archive moves out of 59 documents (archive already published: %s)", async (published) => {
+    const remote: string[] = [];
+    const remoteContent = new Map<string, string>();
+    const paseo = await startFakeBackend(remote, remoteContent);
+    try {
+      const repo = await setupLinkedRepo(paseo.endpoint, published ? 45 : 52);
+      const changes = ".reffy/reffyspec/changes";
+      const files = ["design.md", "proposal.md", "specs/a/spec.md", "specs/b/spec.md", "specs/c/spec.md", "specs/d/spec.md", "tasks.md"];
+      const activePaths = files.map((file) => `${changes}/add-monad-thread/${file}`);
+      const archivedPaths = files.map((file) => `${changes}/archive/2026-11-25-add-monad-thread/${file}`);
+      for (const [index, archivePath] of archivedPaths.entries()) {
+        const content = `remote ${activePaths[index]}`;
+        await overwriteFile(path.join(repo.repoRoot, archivePath), content);
+        remoteContent.set(archivePath, content);
+      }
+      remote.push(...repo.localPaths, ...activePaths);
+      if (published) remote.push(...archivedPaths);
+
+      const args = ["remote", "push", "--prune", "--repo", repo.repoRoot];
+      const preview = await runCli([...args, "--dry-run", "--output", "text"]);
+      expect(preview.code).toBe(0);
+      expect(preview.stdout).toContain(`Would delete:\n${activePaths.map((p) => `- ${p}`).join("\n")}`);
+      expect(preview.stdout).toContain("Verified archive moves:");
+      expect(preview.stdout).toContain("Deletions counted by the guard: 0 of 59 remote project documents");
+      expect(preview.stdout).toContain("Mass-deletion guard: pass");
+      expect(mutating(paseo.seen)).toEqual([]);
+
+      const result = await runCli([...args, "--output", "json"]);
+      expect(result.code).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        mass_deletion_guard: "pass",
+        deleted: 7,
+        plan: { deleted: activePaths, verified_archive_moves: activePaths, guard_deletion_count: 0 },
+      });
+      expect(importRequest(paseo.seen)?.body).toMatchObject({
+        replace_missing: true,
+        documents: expect.arrayContaining(archivedPaths.map((archivePath) => expect.objectContaining({
+          path: archivePath, content: remoteContent.get(archivePath),
+        }))),
+      });
     } finally {
       await paseo.close();
     }
@@ -1988,10 +2041,15 @@ describe("remote push safety", () => {
       remote.push(...repo.localPaths, ".reffy/artifacts/a.md", ".reffy/artifacts/b.md");
       const result = await runCli(["remote", "push", "--prune", "--repo", repo.repoRoot, "--output", "json"]);
       expect(result.code).toBe(1);
-      const parsed = JSON.parse(result.stdout) as { error: string };
+      const parsed = JSON.parse(result.stdout) as { error: string; plan: unknown };
       expect(parsed.error).toContain("mass-deletion guard");
       expect(parsed.error).toContain("- .reffy/artifacts/a.md");
       expect(parsed.error).toContain("--prune --force");
+      expect(parsed.plan).toMatchObject({
+        deleted: [".reffy/artifacts/a.md", ".reffy/artifacts/b.md"],
+        verified_archive_moves: [],
+        guard_deletion_count: 2,
+      });
       expect(mutating(paseo.seen)).toEqual([]);
     } finally {
       await paseo.close();
